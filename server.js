@@ -147,6 +147,15 @@ app.get('/api/debug/scan-diagnostics', (req, res) => {
   });
 });
 
+// Dump do mapa tatame->página aprendido até agora (state.matPageIndex),
+// por URL de torneio. Pensado pra rodar localmente (mais CPU/memória que
+// hosts grátis), fazer a varredura completa uma vez, e copiar esse JSON
+// pra virar um seed permanente no código (evita o app em produção ter que
+// refazer a varredura pesada, que é o que andou derrubando o Render).
+app.get('/api/debug/mat-page-index', (req, res) => {
+  res.json(state.matPageIndex);
+});
+
 app.get('/api/setup/suggestions', (req, res) => {
   res.json(suggestMappings());
 });

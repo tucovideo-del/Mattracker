@@ -90,6 +90,33 @@ cujo tatame mudou ou cujo dado no roster está desatualizado — completude
 > velocidade aqui. A velocidade vem do cache (`state.matPageIndex`, acima):
 rápido na segunda varredura da mesma URL, completo e correto na primeira.
 
+## Pré-carregar o mapa de tatames (evita 502 em produção)
+
+A varredura completa (primeira vez que o app vê uma URL) é pesada — pode
+esbarrar em limite de CPU/memória de um host gratuito/pequeno como o
+Render e derrubar o processo. Solução: **fazer essa varredura uma vez
+localmente** (seu computador tem bem mais recurso) e **exportar o
+resultado pro código**, pra produção nunca precisar refazer o trabalho
+pesado sozinha:
+
+1. Local: `npm install && npm start`
+2. Abre `http://localhost:3000` → Setup → **Buscar categorias** (com as 5
+   URLs já preenchidas) → espera terminar (alguns minutos, tudo bem, é
+   local).
+3. Copia o resultado: `curl http://localhost:3000/api/debug/mat-page-index`
+   (ou abre esse link no navegador) — é um JSON `{ "<url>": { "<tatame>":
+   <página> } }` por torneio.
+4. Cola esse JSON como o valor de `MAT_PAGE_INDEX_SEED` em
+   `src/mat-page-index-default.js`, commit e push.
+
+Na próxima vez que o app subir (local ou em produção), esse mapa já vem
+pronto — o Setup pula direto pras páginas conhecidas desde a *primeira*
+varredura, sem nunca precisar do walk pesado em produção. Só recalibra de
+novo se um torneio novo aparecer (URL fora do seed) ou os tatames forem
+reatribuídos no meio do evento — nesses casos ainda cai pra varredura
+completa (ou usa o botão "Busca completa"), então nada quebra, só fica
+mais lento até re-descobrir.
+
 Tanto o scan quanto a busca completa (botão por torneio, útil pra forçar
 uma nova varredura de um torneio específico) rodam em **background** no servidor:
 o clique só inicia e a tela fica consultando o progresso a cada 2s, em vez

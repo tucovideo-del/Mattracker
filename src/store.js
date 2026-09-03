@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ROSTER } = require('./roster-default');
+const { MAT_PAGE_INDEX_SEED } = require('./mat-page-index-default');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
@@ -48,7 +49,18 @@ function loadState() {
   return defaultState();
 }
 
+// Preenche matPageIndex com o seed hardcoded (src/mat-page-index-default.js)
+// pra URL que o app ainda não descobriu sozinho — nunca sobrescreve dado
+// aprendido ao vivo (esse sempre tem prioridade, é mais recente/confiável
+// que o seed estático).
+function seedMatPageIndex(state) {
+  for (const [url, matMap] of Object.entries(MAT_PAGE_INDEX_SEED)) {
+    if (!state.matPageIndex[url]) state.matPageIndex[url] = matMap;
+  }
+}
+
 const state = loadState();
+seedMatPageIndex(state);
 
 let saveTimer = null;
 function scheduleSave() {
