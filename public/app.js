@@ -39,7 +39,18 @@ async function loadMeta() {
   const meta = await api('/api/meta');
   state.dayLabels = meta.dayLabels;
   state.eventLabels = meta.eventLabels;
+  state.tournamentSources = meta.tournamentSources || [];
   renderFilters();
+  prefillTournamentUrls();
+}
+
+// Pré-preenche a caixa de URLs do Setup com os torneios fixos do evento —
+// não precisa colar de novo toda vez. Só sobrescreve se estiver vazia, pra
+// não perder edição manual do operador numa sessão já em andamento.
+function prefillTournamentUrls() {
+  const el = $('#tournamentUrls');
+  if (!el || el.value.trim() || state.tournamentSources.length === 0) return;
+  el.value = state.tournamentSources.map((t) => t.url).join('\n');
 }
 
 function renderFilters() {

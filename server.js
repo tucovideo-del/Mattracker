@@ -20,6 +20,7 @@ const { startPolling } = require('./src/poller');
 const { state, toggleCovered, addRosterEntry, updateRosterEntry, removeRosterEntry } = require('./src/store');
 const { fetchCategoryFights, fetchCategoriesList } = require('./src/scraper');
 const { DAY_LABELS, EVENT_LABELS } = require('./src/roster-default');
+const { TOURNAMENT_SOURCES } = require('./src/tournament-sources-default');
 
 const app = express();
 app.use(express.json());
@@ -47,7 +48,13 @@ app.post(
 );
 
 app.get('/api/meta', (req, res) => {
-  res.json({ dayLabels: DAY_LABELS, eventLabels: EVENT_LABELS, mappedCategoryUrls: mappedCategoryUrls() });
+  res.json({
+    dayLabels: DAY_LABELS,
+    eventLabels: EVENT_LABELS,
+    mappedCategoryUrls: mappedCategoryUrls(),
+    tournamentSources: TOURNAMENT_SOURCES,
+    defaultTournamentUrls: TOURNAMENT_SOURCES.map((t) => t.url),
+  });
 });
 
 // ---------------------------------------------------------------------------
