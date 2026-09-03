@@ -14,23 +14,23 @@ num serviço de nuvem — dá pra fazer tudo pelo navegador, sem instalar nada
 no computador:
 
 1. Cria conta em https://dashboard.render.com/register (dá pra entrar
-   direto com login do GitHub).
+   direto com login do GitHub, **não pede cartão**).
 2. **New +** → **Blueprint** → conecta o repositório `tucovideo-del/mattracker`
-   → escolhe a branch → Render lê o `render.yaml` deste projeto e já
-   configura tudo sozinho (build, start, porta).
+   → escolhe a branch → Render lê o `render.yaml` deste projeto (já
+   configurado no plano **free**) e monta tudo sozinho (build, start, porta).
 3. Deploy. Em alguns minutos o Render te dá uma URL pública, tipo
-   `https://mattracker.onrender.com`.
+   `https://mattracker.onrender.com`. Grátis, sem prazo de validade.
 4. Abre essa URL do celular por dados móveis, de qualquer lugar do venue.
 
-O plano `starter` (~$7, cobra só pelos dias que ficar no ar, dá pra pausar/
-deletar depois do evento) mantém o app sempre ligado, sem delay. Se quiser
-não gastar nada, troca `plan: starter` por `plan: free` no `render.yaml`
-antes de conectar — funciona igual, só que "dorme" depois de ~15min sem uso
-e demora uns 30-50s pra acordar na primeira requisição depois disso.
+O único efeito colateral do plano free: se ninguém acessar por ~15min o
+serviço "dorme", e a próxima requisição demora uns 30-50s pra acordar antes
+de responder — só na primeira depois de um tempo parado. Se isso incomodar
+e você quiser sempre ligado na hora, dá pra trocar `plan: free` por
+`plan: starter` no `render.yaml` (~$7, só se quiser, não é obrigatório).
 
-⚠️ No plano sem disco persistente pago, se o Render reiniciar a instância
-(deploy novo, manutenção), o mapeamento do Setup se perde e precisa refazer
-o scan — leva menos de um minuto, mas é bom saber.
+⚠️ Nesse plano sem disco persistente, se o Render reiniciar a instância
+(depois de dormir, ou um deploy novo), o mapeamento do Setup se perde e
+precisa refazer o scan — leva menos de um minuto, mas é bom saber.
 
 ### Opção B — local (mesma rede)
 
