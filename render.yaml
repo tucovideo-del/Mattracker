@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mattracker
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+    healthCheckPath: /api/meta

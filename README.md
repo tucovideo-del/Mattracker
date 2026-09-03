@@ -6,6 +6,34 @@ campeonatos simultâneos.
 
 ## Rodando
 
+### Opção A — nuvem, sem terminal (recomendado pra venue grande)
+
+Se celular e notebook não vão ficar na mesma rede (ex.: notebook fica numa
+acomodação com wifi, celular circula pelo venue com dados móveis), publica
+num serviço de nuvem — dá pra fazer tudo pelo navegador, sem instalar nada
+no computador:
+
+1. Cria conta em https://dashboard.render.com/register (dá pra entrar
+   direto com login do GitHub).
+2. **New +** → **Blueprint** → conecta o repositório `tucovideo-del/mattracker`
+   → escolhe a branch → Render lê o `render.yaml` deste projeto e já
+   configura tudo sozinho (build, start, porta).
+3. Deploy. Em alguns minutos o Render te dá uma URL pública, tipo
+   `https://mattracker.onrender.com`.
+4. Abre essa URL do celular por dados móveis, de qualquer lugar do venue.
+
+O plano `starter` (~$7, cobra só pelos dias que ficar no ar, dá pra pausar/
+deletar depois do evento) mantém o app sempre ligado, sem delay. Se quiser
+não gastar nada, troca `plan: starter` por `plan: free` no `render.yaml`
+antes de conectar — funciona igual, só que "dorme" depois de ~15min sem uso
+e demora uns 30-50s pra acordar na primeira requisição depois disso.
+
+⚠️ No plano sem disco persistente pago, se o Render reiniciar a instância
+(deploy novo, manutenção), o mapeamento do Setup se perde e precisa refazer
+o scan — leva menos de um minuto, mas é bom saber.
+
+### Opção B — local (mesma rede)
+
 ```
 npm install
 npm start          # ou: PORT=8080 npm start
@@ -13,11 +41,13 @@ npm start          # ou: PORT=8080 npm start
 
 Abre em `http://localhost:3000` (ou a porta escolhida). Pra acessar do
 celular pelo hotspot, use o IP do notebook na rede local:
-`http://<ip-do-notebook>:3000`.
+`http://<ip-do-notebook>:3000`. Só funciona se celular e notebook
+estiverem na mesma rede o tempo todo.
 
 O estado (roster, mapeamentos, últimas lutas raspadas, log) é salvo em
 `data/state.json` a cada mudança, então dá pra reiniciar o processo no meio
-do evento sem perder o que já foi configurado.
+do evento sem perder o que já foi configurado (em nuvem sem disco
+persistente, ver aviso acima).
 
 ## ⚠️ Calibração do parser (leia antes do dia do evento)
 
