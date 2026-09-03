@@ -65,6 +65,14 @@ cada torneio de verdade** (`discoverTournamentDayPages` em
 adivinhar pelo número dela. Mais lento (pode levar alguns minutos com os 5
 torneios do evento), mas correto.
 
+Isso só acontece na **primeira** varredura de cada URL, porém: uma vez
+descoberto o mapa tatame→página de verdade (dado observado, não fórmula),
+ele fica guardado em `state.matPageIndex[url]` — as próximas vezes que você
+rodar o scan na mesma URL vão direto nas páginas já conhecidas em vez de
+varrer tudo de novo (bem mais rápido). O botão **"Busca completa"** por
+torneio sempre refaz a varredura inteira e atualiza esse cache, útil se um
+tatame novo apareceu no meio do dia ou algo parece desatualizado.
+
 Tanto o scan quanto a busca completa (botão por torneio, útil pra forçar
 uma nova varredura de um torneio específico) rodam em **background** no servidor:
 o clique só inicia e a tela fica consultando o progresso a cada 2s, em vez

@@ -21,6 +21,12 @@ function defaultState() {
     categories: {},
     // `${athleteId}:${fightNumber}` -> true
     covered: {},
+    // dayUrl (sem ?page) -> { "35": 1, "36": 2, ... } — mapa tatame->página
+    // aprendido na primeira varredura completa de cada torneio, pra
+    // próximas varreduras irem direto na página certa em vez de repetir a
+    // varredura inteira (o site não segue uma fórmula previsível — ver
+    // README — então isso só é populado com dado real observado).
+    matPageIndex: {},
     log: [],
     lastPollAt: null,
     lastPollOk: null,

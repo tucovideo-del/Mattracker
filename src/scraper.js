@@ -646,10 +646,22 @@ async function discoverTournamentDayPages(dayUrl, { maxPages = 150 } = {}) {
 
     const mat = mostCommonMat(fights);
     const name = mat ? `Mat ${mat}` : extractPageTitle($) || `Página ${page}`;
-    pages.push({ url: pageUrl, name, fights });
+    pages.push({ url: pageUrl, name, fights, mat });
   }
 
   return pages;
+}
+
+// Constrói {tatame: número_da_página} a partir do que uma varredura
+// completa (discoverTournamentDayPages) realmente encontrou — dado
+// observado de verdade, não fórmula adivinhada. Serve pra cachear e pular
+// direto pra página certa nas próximas varreduras do MESMO dia/torneio.
+function matPageMapFromPages(pages) {
+  const map = {};
+  for (const p of pages) {
+    if (p.mat != null) map[p.mat] = pageNumberFromUrl(p.url);
+  }
+  return map;
 }
 
 // Junta todos os nomes de atletas aparecendo numa categoria (pra fase de match).
@@ -689,6 +701,7 @@ module.exports = {
   pageNumberFromUrl,
   fetchTournamentDayPage,
   discoverTournamentDayPages,
+  matPageMapFromPages,
   // exportado pra debug/testes
   _internal: {
     strategyTableRows,

@@ -12,7 +12,9 @@ const {
   tournamentIdFromUrl,
   isTournamentDayUrl,
   pageNumberFromUrl,
+  fetchTournamentDayPage,
   discoverTournamentDayPages,
+  matPageMapFromPages,
 } = require('./scraper');
 const { findCandidates, normalize } = require('./match');
 const { state, scheduleSave, addRosterEntry } = require('./store');
@@ -103,11 +105,13 @@ function ingestPage(p, tournamentUrl, tournamentId) {
 // relação entre número da página e número do tatame NÃO é confiável de
 // adivinhar (confirmado ao vivo: page=1 mostrou Mat 10 e page=3 mostrou
 // Mat 9 no mesmo torneio — o número do tatame pode até CAIR conforme a
-// página sobe) — então em vez de calcular um atalho, varremos página por
-// página de cada torneio de verdade e lemos o tatame real do conteúdo de
-// cada uma (discoverTournamentDayPages, que já para sozinha quando as
-// páginas acabam). Mais lento que um atalho, mas correto — e como o scan
-// roda em background (ver /api/setup/scan), não trava a UI enquanto isso.
+// página sobe) — mas UMA VEZ que a gente varreu de verdade e sabe o mapa
+// real tatame->página daquela URL, não tem por que repetir a varredura
+// completa nas próximas vezes: cacheia em state.matPageIndex[url] (dado
+// observado, não fórmula adivinhada) e pula direto pras páginas conhecidas.
+// Só faz a varredura completa (discoverTournamentDayPages, mais lenta) na
+// primeira vez que vê essa URL, ou quando o operador força via "Busca
+// completa" (fullScanTournament, que sempre atualiza o cache).
 async function scanTournaments(tournamentUrls) {
   const limit = pLimit(6);
   const errors = [];
@@ -124,7 +128,17 @@ async function scanTournaments(tournamentUrls) {
           const listUrl = categoriesUrlFromInput(input);
           if (isTournamentDayUrl(listUrl)) {
             const tournamentId = tournamentIdFromUrl(listUrl);
-            const discovered = await discoverTournamentDayPages(listUrl);
+            const cachedIndex = state.matPageIndex[listUrl];
+            let discovered;
+            if (cachedIndex && Object.keys(cachedIndex).length > 0) {
+              const pageNums = [...new Set(Object.values(cachedIndex))];
+              discovered = (
+                await Promise.all(pageNums.map((page) => fetchTournamentDayPage(listUrl, page).catch(() => null)))
+              ).filter(Boolean);
+            } else {
+              discovered = await discoverTournamentDayPages(listUrl);
+              state.matPageIndex[listUrl] = matPageMapFromPages(discovered);
+            }
             const pages = new Map(discovered.map((p) => [p.url, p]));
             const firstReal = discovered.find((p) => p.mat != null);
             tournaments.push({ tournamentId, sourceUrl: listUrl, categoriesCount: pages.size });
@@ -208,6 +222,7 @@ async function fullScanTournament(tournamentUrl) {
   }
   const tournamentId = tournamentIdFromUrl(listUrl);
   const fullPages = await discoverTournamentDayPages(listUrl);
+  state.matPageIndex[listUrl] = matPageMapFromPages(fullPages); // atualiza o cache com o que achou de novo
   let added = 0;
   for (const p of fullPages) {
     if (state.categories[p.url]) continue; // já tínhamos essa página
