@@ -113,7 +113,13 @@ function ingestPage(p, tournamentUrl, tournamentId) {
 // primeira vez que vê essa URL, ou quando o operador força via "Busca
 // completa" (fullScanTournament, que sempre atualiza o cache).
 async function scanTournaments(tournamentUrls) {
-  const limit = pLimit(6);
+  // limite baixo de propósito: cada torneio nesta lista pode varrer até
+  // ~150 páginas sozinho (discoverTournamentDayPages), cada uma com um
+  // cheerio.load() síncrono — muitos torneios rodando ao mesmo tempo
+  // empilha CPU/memória o bastante pra derrubar o processo num host com
+  // recurso limitado (foi o que causou um 502 em produção). Mais devagar,
+  // mas não arrisca o servidor inteiro ficar sem resposta no meio do scan.
+  const limit = pLimit(2);
   const errors = [];
   const tournaments = [];
   const dayTournaments = []; // { sourceUrl, tournamentId, firstMat, pages: Map(url -> page) }

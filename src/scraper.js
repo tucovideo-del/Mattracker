@@ -603,23 +603,26 @@ function mostCommonMat(fights) {
 }
 
 // Varre ?page=1,2,3... de uma URL de tournament_day até acabarem os
-// tatames. Critérios de parada (o site real nunca foi visto por este
-// código — ver README —, então são propositalmente conservadores pra não
-// cortar tatames legítimos que estejam vazios num certo momento do dia):
+// tatames. Critérios de parada:
 //   - erro de rede/HTTP (ex.: 404 numa página que não existe)
 //   - conteúdo idêntico ao de QUALQUER página já vista nesta varredura
 //     (sinal de que o site "grudou" no último page válido em vez de dar
 //     erro pra número de página fora do range)
-// Páginas sem nenhuma luta reconhecida são puladas (não viram categoria)
-// mas NÃO param a varredura sozinhas — só o teto de segurança (maxPages)
-// e os dois critérios acima. Isso é mais lento no pior caso, mas evita
-// perder um tatame por causa de uma lacuna no meio da agenda.
-async function discoverTournamentDayPages(dayUrl, { maxPages = 150 } = {}) {
+//   - muitas páginas SEGUIDAS sem nenhuma luta reconhecida (maxEmptyStreak)
+//     — sinal de que passou do último tatame de verdade. Generoso de
+//     propósito (não é 1 ou 2) pra não cortar um tatame legitimamente
+//     vazio num certo momento do dia, mas existe pra não gastar as 150
+//     tentativas do teto de segurança em toda varredura — isso pesa CPU/
+//     memória o bastante pra derrubar o processo num host com recurso
+//     limitado (foi exatamente o que causou um 502 em produção).
+// + o teto de segurança (maxPages), pro pior caso mesmo.
+async function discoverTournamentDayPages(dayUrl, { maxPages = 150, maxEmptyStreak = 10 } = {}) {
   const base = new URL(dayUrl);
   base.searchParams.delete('page');
 
   const pages = [];
   const seenHtml = new Set();
+  let emptyStreak = 0;
 
   for (let page = 1; page <= maxPages; page++) {
     const u = new URL(base.toString());
@@ -642,7 +645,12 @@ async function discoverTournamentDayPages(dayUrl, { maxPages = 150 } = {}) {
 
     const $ = cheerio.load(html);
     const fights = parseFightsFromDom($);
-    if (fights.length === 0) continue;
+    if (fights.length === 0) {
+      emptyStreak += 1;
+      if (emptyStreak >= maxEmptyStreak) break;
+      continue;
+    }
+    emptyStreak = 0;
 
     const mat = mostCommonMat(fights);
     const name = mat ? `Mat ${mat}` : extractPageTitle($) || `Página ${page}`;

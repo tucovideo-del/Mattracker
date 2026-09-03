@@ -63,7 +63,13 @@ página sobe. Sem um padrão confiável, o Setup varre **todas as páginas de
 cada torneio de verdade** (`discoverTournamentDayPages` em
 `src/scraper.js`), lendo o tatame real do conteúdo de cada página em vez de
 adivinhar pelo número dela. Mais lento (pode levar alguns minutos com os 5
-torneios do evento), mas correto.
+torneios do evento), mas correto — a varredura para sozinha depois de 10
+páginas seguidas sem nenhuma luta reconhecida (generoso o bastante pra não
+cortar um tatame legitimamente vazio num momento do dia, mas o suficiente
+pra não gastar as 150 tentativas do teto de segurança à toa — isso pesa
+CPU/memória o bastante pra derrubar o processo num host com recurso
+limitado). Só 2 torneios varrem em paralelo ao mesmo tempo, pelo mesmo
+motivo.
 
 Isso só acontece na **primeira** varredura de cada URL, porém: uma vez
 descoberto o mapa tatame→página de verdade (dado observado, não fórmula),
