@@ -380,16 +380,56 @@ textarea, input, select {
 
 .candidate-option {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
   border-radius: 8px;
   margin-bottom: 4px;
   background: var(--bg-elev2);
 }
 
 .candidate-option.low-confidence { border: 1px dashed var(--yellow); }
-.candidate-option label { flex: 1; font-size: 14px; }
+
+.candidate-option input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg-elev);
+  accent-color: var(--blue);
+}
+
+.candidate-option input[type="radio"]:checked {
+  border-color: var(--blue);
+  background: var(--blue);
+  box-shadow: inset 0 0 0 3px var(--bg-elev2);
+}
+
+.candidate-option label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.candidate-name {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.candidate-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .score-tag { font-size: 11px; color: var(--text-dim); }
 
 .roster-row {

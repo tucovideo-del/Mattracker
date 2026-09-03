@@ -72,6 +72,19 @@ candidato, a tela de Setup mostra um botão **"Busca completa"** por
 torneio — aí sim varre todos os tatames daquele dia (mais lento, mas
 completo) e atualiza as sugestões.
 
+O parser separa o nome do atleta (caixa alta, ex. "THAINARA APARECIDA...")
+da linha da academia logo abaixo (ex. "David Fadel Brazilian Jiu-Jitsu"),
+pra não confundir uma com a outra na hora de casar com o roster.
+
+## Buscar por academia
+
+Além de casar por nome, a seção **"3. Buscar por academia"** do Setup
+procura direto pela equipe (ex. "Inspirit") em tudo que já foi escaneado —
+mais confiável que adivinhar nome de atleta um por um, e acha até atleta
+que ainda não está no roster (o botão "+ Adicionar e mapear" cadastra e já
+confirma o mapeamento num clique só, só falta escolher dia/evento). Precisa
+rodar um scan (ou Busca completa) antes pra ter dado pra procurar.
+
 ## ⚠️ Calibração do parser (leia antes do dia do evento)
 
 Este projeto foi construído num ambiente sem acesso de rede ao

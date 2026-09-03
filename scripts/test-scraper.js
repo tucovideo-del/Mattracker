@@ -7,6 +7,24 @@ const cheerio = require('cheerio');
 const { _internal } = require('../src/scraper');
 const { strategyTableRows, strategyBracketCards, strategyFullTextScan } = _internal;
 
+// Reproduz a estrutura real do bjjcompsystem.com (visto por Tuco ao vivo):
+// nome do atleta numa linha, ACADEMIA na linha de baixo, dentro da MESMA
+// célula — precisa separar as duas, não tratar a academia como se fosse o
+// segundo atleta.
+const teamTableHtml = `
+<html><body>
+<h1>Master 1 Female Brown Middle</h1>
+<table>
+  <tr>
+    <td>FIGHT 13</td><td>MAT 22</td><td>11:05 AM</td>
+    <td><div class="seed">25</div><div class="name">JOSHUA ROY HINGER</div><div class="team">Seraphim Jiu-Jitsu</div></td>
+    <td><div class="seed">41</div><div class="name">DAVID FADEL NETO</div><div class="team">David Fadel Brazilian Jiu-Jitsu</div></td>
+    <td></td>
+  </tr>
+</table>
+</body></html>
+`;
+
 const tableHtml = `
 <html><body>
 <h1>Master 4 / Black / Medium-Heavy</h1>
@@ -68,6 +86,7 @@ function run(name, html, fn) {
 const r1 = run('strategyTableRows', tableHtml, strategyTableRows);
 const r2 = run('strategyBracketCards', cardHtml, strategyBracketCards);
 const r3 = run('strategyFullTextScan', textHtml, strategyFullTextScan);
+const r4 = run('strategyTableRows (nome+academia na mesma célula)', teamTableHtml, strategyTableRows);
 
 let ok = true;
 if (r1.length < 2) { console.error('FAIL: table strategy found too few fights'); ok = false; }
@@ -76,6 +95,23 @@ if (r2.length < 1) { console.error('FAIL: card strategy found no fights'); ok = 
 if (!r2.some(f => f.athletes.some(a => /Kaue Victor/i.test(a)))) { console.error('FAIL: card strategy missing Kaue Victor'); ok = false; }
 if (r3.length < 1) { console.error('FAIL: text scan found no fights'); ok = false; }
 if (!r3.some(f => f.athletes.some(a => /Lukas Freitas/i.test(a)))) { console.error('FAIL: text scan missing Lukas Freitas'); ok = false; }
+
+const f4 = r4[0];
+if (!f4) { console.error('FAIL: team-table strategy found no fight'); ok = false; }
+else {
+  if (!f4.athletes.includes('JOSHUA ROY HINGER') || !f4.athletes.includes('DAVID FADEL NETO')) {
+    console.error('FAIL: team-table strategy did not extract both real athlete names (got: ' + JSON.stringify(f4.athletes) + ')');
+    ok = false;
+  }
+  if (f4.athletes.some((a) => /jiu-jitsu/i.test(a))) {
+    console.error('FAIL: team-table strategy leaked an academy name into athletes[]');
+    ok = false;
+  }
+  if (!f4.teams || !f4.teams.some((t) => /Seraphim/i.test(t || '')) || !f4.teams.some((t) => /David Fadel/i.test(t || ''))) {
+    console.error('FAIL: team-table strategy did not capture teams[] correctly (got: ' + JSON.stringify(f4.teams) + ')');
+    ok = false;
+  }
+}
 
 console.log(ok ? '\nALL OK' : '\nFAILURES ABOVE');
 process.exit(ok ? 0 : 1);

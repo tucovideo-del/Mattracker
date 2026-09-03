@@ -7,7 +7,7 @@
 const {
   fetchCategoriesList,
   fetchCategoryFights,
-  athleteNamesFromFights,
+  athleteTeamEntriesFromFights,
   categoriesUrlFromInput,
   tournamentIdFromUrl,
   isTournamentDayUrl,
@@ -15,8 +15,8 @@ const {
   fetchTournamentDayPage,
   discoverTournamentDayPages,
 } = require('./scraper');
-const { findCandidates } = require('./match');
-const { state, scheduleSave } = require('./store');
+const { findCandidates, normalize } = require('./match');
+const { state, scheduleSave, addRosterEntry } = require('./store');
 
 function pLimit(concurrency) {
   let active = 0;
@@ -60,8 +60,8 @@ function ingestPage(p, tournamentUrl, tournamentId) {
     lastErrorAt: null,
   };
   lastScan.categories.push({ url: p.url, name: p.name, tournamentUrl, tournamentId });
-  for (const name of athleteNamesFromFights(p.fights)) {
-    lastScan.occurrences.push({ name, categoryUrl: p.url, categoryName: p.name, tournamentUrl, tournamentId });
+  for (const { name, team } of athleteTeamEntriesFromFights(p.fights)) {
+    lastScan.occurrences.push({ name, team, categoryUrl: p.url, categoryName: p.name, tournamentUrl, tournamentId });
   }
 }
 
@@ -87,11 +87,22 @@ async function scanTournaments(tournamentUrls) {
         try {
           const listUrl = categoriesUrlFromInput(input);
           if (isTournamentDayUrl(listUrl)) {
-            const page1 = await fetchTournamentDayPage(listUrl, 1);
             const tournamentId = tournamentIdFromUrl(listUrl);
+            const pages = new Map();
+            // page=1 pode não ter luta reconhecida ainda (tatame ocioso
+            // nesse momento do dia) — tenta mais algumas antes de desistir
+            // de calcular o offset página→tatame pra esse torneio.
+            let firstMat = null;
+            for (let probe = 1; probe <= 6 && firstMat == null; probe++) {
+              const p = await fetchTournamentDayPage(listUrl, probe);
+              pages.set(p.url, p);
+              if (p.mat != null) {
+                const matNum = parseInt(p.mat, 10);
+                if (Number.isFinite(matNum)) firstMat = matNum - (probe - 1);
+              }
+            }
             tournaments.push({ tournamentId, sourceUrl: listUrl, categoriesCount: null });
-            const pages = new Map([[page1.url, page1]]);
-            dayTournaments.push({ sourceUrl: listUrl, tournamentId, firstMat: page1.mat, pages });
+            dayTournaments.push({ sourceUrl: listUrl, tournamentId, firstMat, pages });
           } else {
             const { tournamentId, sourceUrl, categories } = await fetchCategoriesList(input);
             tournaments.push({ tournamentId, sourceUrl, categoriesCount: categories.length });
@@ -205,6 +216,7 @@ function suggestMappings(threshold = 0.5) {
           tournamentUrl: occ.tournamentUrl,
           tournamentId: occ.tournamentId,
           siteName: occ.name,
+          team: occ.team || null,
           score: score[0].score,
         });
       }
@@ -247,4 +259,49 @@ function clearMapping(athleteId) {
   scheduleSave();
 }
 
-module.exports = { scanTournaments, fullScanTournament, suggestMappings, confirmMapping, clearMapping, getLastScan };
+// Busca por academia/equipe (ex.: "Inspirit") em vez de por nome de atleta
+// — mais confiável quando não se sabe o roster de cor, ou pra pegar atleta
+// que ainda não está cadastrado. Substring, acento/case-insensitive.
+function searchByTeam(query, { limit = 200 } = {}) {
+  const q = normalize(query);
+  if (!q) return [];
+  const seen = new Map(); // `${name}|${categoryUrl}` -> occurrence
+  for (const occ of lastScan.occurrences || []) {
+    if (!occ.team) continue;
+    if (!normalize(occ.team).includes(q)) continue;
+    const key = `${occ.name}|${occ.categoryUrl}`;
+    if (!seen.has(key)) seen.set(key, occ);
+  }
+  return [...seen.values()].slice(0, limit);
+}
+
+// Adiciona (ou reaproveita, se já existir no roster) um atleta achado pela
+// busca por academia, e já confirma o mapeamento pra categoria/tatame onde
+// ele apareceu — um clique só em vez de "adicionar no roster" + "confirmar
+// no scan" separados.
+function addFromTeamSearch({ name, categoryUrl, categoryName, tournamentUrl, tournamentId, siteName, day, event, baseMat }) {
+  const normalized = normalize(name);
+  let athlete = state.roster.find((a) => normalize(a.name) === normalized);
+  if (!athlete) {
+    athlete = addRosterEntry({ name, day, event, baseMat: baseMat || null, baseTime: null });
+  }
+  const mapping = confirmMapping(athlete.id, {
+    categoryUrl,
+    categoryName,
+    tournamentUrl,
+    tournamentId,
+    siteName: siteName || name,
+  });
+  return { athlete, mapping };
+}
+
+module.exports = {
+  scanTournaments,
+  fullScanTournament,
+  suggestMappings,
+  confirmMapping,
+  clearMapping,
+  getLastScan,
+  searchByTeam,
+  addFromTeamSearch,
+};

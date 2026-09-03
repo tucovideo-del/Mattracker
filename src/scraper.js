@@ -149,8 +149,20 @@ function looksLikeName(s) {
   return /[a-zà-ÿ]/i.test(t);
 }
 
+// No bjjcompsystem.com o nome do atleta vem em CAIXA ALTA e a
+// academia/equipe embaixo em texto normal (ex.: "THAINARA APARECIDA..." /
+// "David Fadel Brazilian Jiu-Jitsu") — usamos isso pra separar as duas
+// coisas em vez de tratar qualquer linha "parece nome" como atleta.
+function isAllCapsName(s) {
+  const letters = s.replace(/[^a-zà-ÿ]/gi, '');
+  if (letters.length < 2) return false;
+  return letters === letters.toUpperCase();
+}
+
 // Extrai um objeto "fight" a partir de um bloco de texto livre (uma linha
-// por elemento de bloco dentro do card/linha da luta).
+// por elemento de bloco dentro do card/linha da luta). Retorna também
+// `teams[]`, paralelo a `athletes[]` (mesma posição = mesmo atleta), com a
+// academia quando dá pra identificar (senão null).
 function parseFightBlock(lines, fallbackIndex) {
   const text = lines.join(' | ');
 
@@ -160,17 +172,49 @@ function parseFightBlock(lines, fallbackIndex) {
   const winnerMatch = RE_WINNER_LABEL.exec(text);
   const isBye = RE_BYE.test(text);
 
-  // Nomes: tenta "A vs B" / "A x B" primeiro.
+  // Nomes: tenta "A vs B" / "A x B" primeiro (times não aparecem nesse formato).
   let athletes = [];
+  let teams = [];
   const vsLine = lines.find((l) => /\s+(vs\.?|x|×)\s+/i.test(l) && !RE_TIME.test(l));
   if (vsLine) {
     athletes = vsLine
       .split(/\s+(?:vs\.?|x|×)\s+/i)
       .map((s) => s.trim())
       .filter(looksLikeName);
+    teams = athletes.map(() => null);
   }
+
   if (athletes.length < 1) {
-    athletes = lines.filter(looksLikeName).slice(0, 2);
+    const nameLikeLines = lines.filter(looksLikeName);
+
+    // Tentativa 1: emparelha CAIXA ALTA (nome, como no site real) + linha
+    // seguinte que NÃO é caixa alta (equipe).
+    const paired = [];
+    for (let i = 0; i < lines.length && paired.length < 2; i++) {
+      const line = lines[i];
+      if (!looksLikeName(line) || !isAllCapsName(line)) continue;
+      const next = lines[i + 1];
+      const team = next && looksLikeName(next) && !isAllCapsName(next) ? next : null;
+      paired.push({ name: line, team });
+      if (team) i++; // já consumida como equipe
+    }
+
+    if (paired.length === 2) {
+      athletes = paired.map((p) => p.name);
+      teams = paired.map((p) => p.team);
+    } else if (nameLikeLines.length >= 4 && nameLikeLines.length % 2 === 0) {
+      // Tentativa 2: não deu pra confiar em caixa alta (ex.: o "caixa alta"
+      // visual é só CSS text-transform, o texto do DOM é normal) — assume
+      // alternância posicional nome/equipe/nome/equipe, mesmo padrão dos
+      // exemplos reais, só que sem depender de maiúscula.
+      athletes = [nameLikeLines[0], nameLikeLines[2]];
+      teams = [nameLikeLines[1] || null, nameLikeLines[3] || null];
+    } else {
+      // Bloco simples (sem equipe, ou poucas linhas pra separar com
+      // segurança) — pega as primeiras linhas que parecem nome, como antes.
+      athletes = nameLikeLines.slice(0, 2);
+      teams = athletes.map(() => null);
+    }
   }
   athletes = athletes.map((a) => a.replace(/\s*[\(\[]?(w|win|l|loss)[\)\]]?\s*$/i, '').replace(/[✓✔]/g, '').trim());
 
@@ -200,11 +244,30 @@ function parseFightBlock(lines, fallbackIndex) {
     mat: matMatch ? matMatch[1] : null,
     scheduledTime: timeMatch ? timeMatch[1].toUpperCase().replace(/\s+/g, '') : null,
     athletes,
+    teams, // paralelo a athletes — academia de cada um, quando identificável
     winner,
     bye: isBye,
     status: winner ? 'done' : 'scheduled',
     raw: text.slice(0, 400),
   };
+}
+
+// Extrai uma "linha" de texto por nó-folha dentro de um elemento — preserva
+// a separação entre coisas empilhadas em divs/spans aninhados (ex.: nome do
+// atleta numa linha, academia na linha de baixo, dentro da MESMA célula).
+// Sem isso, um `.text()` direto grudaria "NOME ATLETAAcademia Tal" sem
+// espaço, e o parser não teria como separar as duas coisas.
+function leafLines($, el) {
+  const lines = [];
+  $(el)
+    .find('*')
+    .addBack()
+    .each((_, node) => {
+      if (node.type === 'text') return;
+      const own = $(node).clone().children().remove().end().text().replace(/\s+/g, ' ').trim();
+      if (own) lines.push(own);
+    });
+  return lines;
 }
 
 // Estratégia A: linhas de tabela (<tr>).
@@ -214,13 +277,11 @@ function strategyTableRows($) {
     $(table)
       .find('tr')
       .each((i, tr) => {
-        const cells = $(tr)
-          .find('td,th')
-          .map((_, c) => $(c).text().replace(/\s+/g, ' ').trim())
-          .get()
-          .filter(Boolean);
-        if (cells.length < 2) return;
-        const fight = parseFightBlock(cells, fights.length + 1);
+        const cellEls = $(tr).find('td,th').toArray();
+        if (cellEls.length < 2) return;
+        const lines = cellEls.flatMap((c) => leafLines($, c));
+        if (lines.length < 2) return;
+        const fight = parseFightBlock(lines, fights.length + 1);
         if (fight) fights.push(fight);
       });
   });
@@ -235,19 +296,7 @@ function strategyBracketCards($) {
     const $el = $(el);
     // ignora containers grandes demais (provavelmente a chave inteira, não uma luta)
     if ($el.find(sel).length > 0) return;
-    const lines = [];
-    $el.find('*').addBack().each((_, node) => {
-      if (node.type === 'text') return;
-      const own = $(node)
-        .clone()
-        .children()
-        .remove()
-        .end()
-        .text()
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (own) lines.push(own);
-    });
+    const lines = leafLines($, el);
     if (lines.length === 0) return;
     const fight = parseFightBlock(lines, fights.length + 1);
     if (fight) fights.push(fight);
@@ -444,6 +493,21 @@ function athleteNamesFromFights(fights) {
   return [...set];
 }
 
+// Junta pares {name, team} únicos aparecendo numa categoria — usado na
+// busca por academia (ex.: "Inspirit"). team fica null quando o parser não
+// conseguiu separar a linha da academia da linha do nome.
+function athleteTeamEntriesFromFights(fights) {
+  const seen = new Map(); // name -> team (mantém o primeiro team não-nulo achado)
+  for (const f of fights) {
+    const teams = f.teams || [];
+    f.athletes.forEach((name, i) => {
+      const team = teams[i] || null;
+      if (!seen.has(name) || (!seen.get(name) && team)) seen.set(name, team);
+    });
+  }
+  return [...seen.entries()].map(([name, team]) => ({ name, team }));
+}
+
 module.exports = {
   fetchHtml,
   categoriesUrlFromInput,
@@ -451,6 +515,7 @@ module.exports = {
   fetchCategoriesList,
   fetchCategoryFights,
   athleteNamesFromFights,
+  athleteTeamEntriesFromFights,
   isTournamentDayUrl,
   buildPageUrl,
   pageNumberFromUrl,

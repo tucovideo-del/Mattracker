@@ -5,7 +5,16 @@ const express = require('express');
 
 const { buildBoard } = require('./src/board');
 const { listRosterWithMappingInfo } = require('./src/board-list');
-const { scanTournaments, fullScanTournament, suggestMappings, confirmMapping, clearMapping, getLastScan } = require('./src/setup');
+const {
+  scanTournaments,
+  fullScanTournament,
+  suggestMappings,
+  confirmMapping,
+  clearMapping,
+  getLastScan,
+  searchByTeam,
+  addFromTeamSearch,
+} = require('./src/setup');
 const { pollOnce, mappedCategoryUrls } = require('./src/poller');
 const { startPolling } = require('./src/poller');
 const { state, toggleCovered, addRosterEntry, updateRosterEntry, removeRosterEntry } = require('./src/store');
@@ -111,6 +120,27 @@ app.post(
 
 app.get('/api/setup/categories', (req, res) => {
   res.json(getLastScan());
+});
+
+// Busca por academia (ex.: "Inspirit") entre tudo que já foi escaneado —
+// mais confiável que tentar acertar nomes de atleta um por um.
+app.get('/api/setup/team-search', (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: 'query param q é obrigatório' });
+  res.json(searchByTeam(String(q)));
+});
+
+app.post('/api/setup/team-search/add', (req, res) => {
+  const { name, categoryUrl, categoryName, tournamentUrl, tournamentId, siteName, day, event, baseMat } = req.body || {};
+  if (!name || !categoryUrl || !day || !event) {
+    return res.status(400).json({ error: 'name, categoryUrl, day e event são obrigatórios' });
+  }
+  try {
+    const result = addFromTeamSearch({ name, categoryUrl, categoryName, tournamentUrl, tournamentId, siteName, day, event, baseMat });
+    res.json({ ...result, suggestions: suggestMappings() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.post(

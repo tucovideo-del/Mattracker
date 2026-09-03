@@ -441,10 +441,14 @@ function renderSuggestions(suggestions) {
       .map((c, i) => {
         const low = c.score < 0.85 ? ' low-confidence' : '';
         const checked = i === 0 && c.score >= 0.85 ? 'checked' : '';
+        const teamStr = c.team ? ` · ${escapeHtml(c.team)}` : '';
         return `
           <div class="candidate-option${low}">
             <input type="radio" name="pick-${s.athleteId}" id="opt-${s.athleteId}-${i}" value="${i}" ${checked} />
-            <label for="opt-${s.athleteId}-${i}">${escapeHtml(c.siteName)} — ${escapeHtml(c.categoryName || '')} <span class="score-tag">(${Math.round(c.score * 100)}%)</span></label>
+            <label for="opt-${s.athleteId}-${i}">
+              <span class="candidate-name">${escapeHtml(c.siteName)}</span>
+              <span class="candidate-meta">${escapeHtml(c.categoryName || '')}${teamStr} <span class="score-tag">(${Math.round(c.score * 100)}%)</span></span>
+            </label>
           </div>`;
       })
       .join('');
@@ -454,7 +458,7 @@ function renderSuggestions(suggestions) {
     optionsHtml += `
       <div class="candidate-option">
         <input type="radio" name="pick-${s.athleteId}" id="opt-${s.athleteId}-none" value="none" ${options.length === 0 ? 'checked' : ''} />
-        <label for="opt-${s.athleteId}-none">Não mapear agora</label>
+        <label for="opt-${s.athleteId}-none"><span class="candidate-name">Não mapear agora</span></label>
       </div>`;
 
     card.innerHTML = `
@@ -496,6 +500,88 @@ $('#confirmBtn').addEventListener('click', async () => {
     $('#confirmBtn').disabled = false;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Busca por academia (ex.: Inspirit) — mais confiável que adivinhar nomes
+// um por um, e acha atleta que ainda nem está no roster.
+// ---------------------------------------------------------------------------
+
+function guessEventFromCategoryName(name) {
+  const n = (name || '').toLowerCase();
+  if (/kid/.test(n)) return 'KIDS';
+  if (/master/.test(n)) return 'WM';
+  return 'CON';
+}
+
+$('#teamSearchBtn').addEventListener('click', async () => {
+  const q = $('#teamSearchInput').value.trim();
+  if (!q) return;
+  $('#teamSearchStatus').textContent = 'Buscando…';
+  $('#teamSearchBtn').disabled = true;
+  try {
+    const results = await api(`/api/setup/team-search?q=${encodeURIComponent(q)}`);
+    $('#teamSearchStatus').textContent = `${results.length} atleta(s) encontrado(s) com "${q}" na academia.`;
+    renderTeamSearchResults(results);
+  } catch (err) {
+    $('#teamSearchStatus').textContent = `Erro: ${err.message}`;
+  } finally {
+    $('#teamSearchBtn').disabled = false;
+  }
+});
+
+function renderTeamSearchResults(results) {
+  const el = $('#teamSearchResults');
+  el.innerHTML = '';
+  for (const r of results) {
+    const row = document.createElement('div');
+    row.className = 'suggestion-card';
+    const guessedEvent = guessEventFromCategoryName(r.categoryName);
+    row.innerHTML = `
+      <div class="suggestion-name">${escapeHtml(r.name)}</div>
+      <div class="suggestion-sub">${escapeHtml(r.team || '')} · ${escapeHtml(r.categoryName || '')}</div>
+      <div class="add-athlete-form">
+        <select class="tsDay">
+          <option value="THU">Qui</option>
+          <option value="FRI">Sex</option>
+          <option value="SAT">Sáb</option>
+        </select>
+        <select class="tsEvent">
+          <option value="WM" ${guessedEvent === 'WM' ? 'selected' : ''}>World Master</option>
+          <option value="CON" ${guessedEvent === 'CON' ? 'selected' : ''}>Jiu Jitsu CON</option>
+          <option value="KIDS" ${guessedEvent === 'KIDS' ? 'selected' : ''}>Kids</option>
+        </select>
+        <button class="primary-btn tsAdd">+ Adicionar e mapear</button>
+      </div>
+    `;
+    row.querySelector('.tsAdd').addEventListener('click', async (ev) => {
+      const btn = ev.target;
+      btn.disabled = true;
+      btn.textContent = 'Adicionando…';
+      try {
+        await api('/api/setup/team-search/add', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: r.name,
+            categoryUrl: r.categoryUrl,
+            categoryName: r.categoryName,
+            tournamentUrl: r.tournamentUrl,
+            tournamentId: r.tournamentId,
+            siteName: r.name,
+            day: row.querySelector('.tsDay').value,
+            event: row.querySelector('.tsEvent').value,
+          }),
+        });
+        btn.textContent = '✅ Adicionado';
+        loadRosterMgmt();
+        loadStatus();
+      } catch (err) {
+        btn.textContent = `Erro: ${err.message}`;
+        btn.disabled = false;
+      }
+    });
+    el.appendChild(row);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Roster management
