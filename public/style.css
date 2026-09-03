@@ -362,6 +362,11 @@ textarea, input, select {
   font-weight: 700;
 }
 
+#fullScanControls .secondary-btn {
+  margin-top: 8px;
+  word-break: break-word;
+}
+
 .suggestion-card {
   background: var(--bg-elev);
   border: 1px solid var(--border);

@@ -49,6 +49,29 @@ O estado (roster, mapeamentos, últimas lutas raspadas, log) é salvo em
 do evento sem perder o que já foi configurado (em nuvem sem disco
 persistente, ver aviso acima).
 
+## Como o scan encontra os atletas (bjjcompsystem.com)
+
+O site pagina cada `/tournaments/{id}/tournament_days/{day_id}` por
+**tatame** (`?page=N`) — cada página é a agenda de UM tatame só naquele dia.
+A relação entre número da página e número do tatame é linear mas o offset
+muda por torneio/dia (ex.: confirmado ao vivo — `page=1` era o Mat 35,
+`page=24` era o Mat 58 nesse torneio específico).
+
+Em vez de varrer página por página (lento — pode ser 50+ tatames por dia),
+o Setup faz assim:
+
+1. Busca só a `page=1` de cada URL colada, pra descobrir o tatame inicial
+   daquele dia.
+2. Calcula direto a página de cada tatame-base que o roster já espera
+   (`page = tatame - tatame_da_page_1 + 1`) e busca só essas páginas.
+3. Cruza os nomes achados contra o roster (fuzzy, como sempre).
+
+Isso resolve a maioria dos atletas em segundos. Se algum atleta mudou de
+tatame (ou o dado do roster está desatualizado) e não aparece com nenhum
+candidato, a tela de Setup mostra um botão **"Busca completa"** por
+torneio — aí sim varre todos os tatames daquele dia (mais lento, mas
+completo) e atualiza as sugestões.
+
 ## ⚠️ Calibração do parser (leia antes do dia do evento)
 
 Este projeto foi construído num ambiente sem acesso de rede ao

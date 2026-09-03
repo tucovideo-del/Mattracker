@@ -4,7 +4,17 @@
 // tournaments, varre as categorias UMA vez procurando os atletas do roster,
 // e devolve sugestões de mapeamento pra confirmação manual na UI.
 
-const { fetchCategoriesList, fetchCategoryFights, athleteNamesFromFights } = require('./scraper');
+const {
+  fetchCategoriesList,
+  fetchCategoryFights,
+  athleteNamesFromFights,
+  categoriesUrlFromInput,
+  tournamentIdFromUrl,
+  isTournamentDayUrl,
+  buildPageUrl,
+  fetchTournamentDayPage,
+  discoverTournamentDayPages,
+} = require('./scraper');
 const { findCandidates } = require('./match');
 const { state, scheduleSave } = require('./store');
 
@@ -29,56 +39,115 @@ function pLimit(concurrency) {
     });
 }
 
-// Cache da última varredura, usado pro picker manual (homônimos / correção).
-// Não precisa persistir: se o servidor reiniciar no meio do setup, refaz o scan.
-let lastScan = { tournaments: [], categories: [] };
+// Cache da última varredura, usado pro picker manual (homônimos / correção)
+// e acumulado incrementalmente (scanTournaments reseta, fullScanTournament
+// só complementa). Não precisa persistir: se o servidor reiniciar no meio
+// do setup, refaz o scan.
+let lastScan = { tournaments: [], categories: [], occurrences: [], scannedAt: null };
 
 function getLastScan() {
   return lastScan;
 }
 
+// Registra uma página já buscada (seja de tournament_day ou do formato
+// antigo) no state.categories + na lista de occurrences pro matching.
+function ingestPage(p, tournamentUrl, tournamentId) {
+  state.categories[p.url] = {
+    categoryName: p.name,
+    fights: p.fights,
+    fetchedAt: new Date().toISOString(),
+    lastError: null,
+    lastErrorAt: null,
+  };
+  lastScan.categories.push({ url: p.url, name: p.name, tournamentUrl, tournamentId });
+  for (const name of athleteNamesFromFights(p.fights)) {
+    lastScan.occurrences.push({ name, categoryUrl: p.url, categoryName: p.name, tournamentUrl, tournamentId });
+  }
+}
+
+// bjjcompsystem.com pagina cada tournament_day por TATAME (?page=N), com um
+// offset que muda por torneio/dia (page=1 pode ser Mat 35 num torneio e Mat
+// 1 noutro). Em vez de varrer página por página, buscamos só a page=1 pra
+// descobrir esse offset e pulamos direto pra página de cada tatame que o
+// roster já espera (`page = mat - firstMat + 1`) — bem mais rápido que
+// varrer tudo. Ver fullScanTournament() pro plano B quando isso não achar
+// um atleta (tatame reatribuído, ou dado do roster desatualizado).
 async function scanTournaments(tournamentUrls) {
   const limit = pLimit(6);
   const errors = [];
   const tournaments = [];
-  const allCategories = []; // {url, name, tournamentUrl, tournamentId}
+  const dayTournaments = []; // { sourceUrl, tournamentId, firstMat, pages: Map(url -> page) }
+  const staticCategories = []; // formato antigo (lista de categorias por link)
 
-  for (const input of tournamentUrls) {
-    try {
-      const { tournamentId, sourceUrl, categories } = await fetchCategoriesList(input);
-      tournaments.push({ tournamentId, sourceUrl, categoriesCount: categories.length });
-      for (const c of categories) {
-        allCategories.push({ ...c, tournamentUrl: sourceUrl, tournamentId });
-      }
-    } catch (err) {
-      errors.push({ input, stage: 'categories-list', error: err.message });
+  lastScan = { tournaments: [], categories: [], occurrences: [], scannedAt: null };
+
+  await Promise.all(
+    tournamentUrls.map((input) =>
+      limit(async () => {
+        try {
+          const listUrl = categoriesUrlFromInput(input);
+          if (isTournamentDayUrl(listUrl)) {
+            const page1 = await fetchTournamentDayPage(listUrl, 1);
+            const tournamentId = tournamentIdFromUrl(listUrl);
+            tournaments.push({ tournamentId, sourceUrl: listUrl, categoriesCount: null });
+            const pages = new Map([[page1.url, page1]]);
+            dayTournaments.push({ sourceUrl: listUrl, tournamentId, firstMat: page1.mat, pages });
+          } else {
+            const { tournamentId, sourceUrl, categories } = await fetchCategoriesList(input);
+            tournaments.push({ tournamentId, sourceUrl, categoriesCount: categories.length });
+            for (const c of categories) staticCategories.push({ ...c, tournamentUrl: sourceUrl, tournamentId });
+          }
+        } catch (err) {
+          errors.push({ input, stage: 'discover', error: err.message });
+        }
+      })
+    )
+  );
+
+  // pula direto pra página de cada tatame-base do roster, por torneio.
+  const targeted = [];
+  for (const dt of dayTournaments) {
+    const firstMatNum = parseInt(dt.firstMat, 10);
+    if (!Number.isFinite(firstMatNum)) continue; // page=1 não trouxe tatame legível
+    const wantedMats = new Set(state.roster.map((a) => parseInt(a.baseMat, 10)).filter(Number.isFinite));
+    for (const mat of wantedMats) {
+      const page = mat - firstMatNum + 1;
+      if (page >= 1) targeted.push({ dt, page });
     }
   }
 
-  const occurrences = []; // {name, categoryUrl, categoryName, tournamentUrl, tournamentId}
-
   await Promise.all(
-    allCategories.map((cat) =>
+    targeted.map(({ dt, page }) =>
+      limit(async () => {
+        const url = buildPageUrl(dt.sourceUrl, page);
+        if (dt.pages.has(url)) return; // já temos (ex.: page calculada = page 1)
+        try {
+          const result = await fetchTournamentDayPage(dt.sourceUrl, page);
+          dt.pages.set(result.url, result);
+        } catch (err) {
+          errors.push({ input: dt.sourceUrl, stage: `mat-page-${page}`, error: err.message });
+        }
+      })
+    )
+  );
+
+  for (const dt of dayTournaments) {
+    for (const p of dt.pages.values()) ingestPage(p, dt.sourceUrl, dt.tournamentId);
+  }
+
+  // categorias do formato antigo (link-list) — busca as lutas de cada uma.
+  await Promise.all(
+    staticCategories.map((cat) =>
       limit(async () => {
         try {
-          const result = await fetchCategoryFights(cat.url);
-          state.categories[cat.url] = {
-            categoryName: result.categoryName || cat.name,
-            fights: result.fights,
-            fetchedAt: result.fetchedAt,
-            lastError: null,
-            lastErrorAt: null,
-          };
-          const names = athleteNamesFromFights(result.fights);
-          for (const name of names) {
-            occurrences.push({
-              name,
-              categoryUrl: cat.url,
-              categoryName: result.categoryName || cat.name,
-              tournamentUrl: cat.tournamentUrl,
-              tournamentId: cat.tournamentId,
-            });
-          }
+          const result = cat.fights
+            ? { name: cat.name, fights: cat.fights, url: cat.url }
+            : { ...(await fetchCategoryFights(cat.url)), url: cat.url, name: undefined };
+          ingestPage(
+            { url: cat.url, name: result.categoryName || result.name || cat.name, fights: result.fights },
+            cat.tournamentUrl,
+            cat.tournamentId
+          );
         } catch (err) {
           errors.push({ input: cat.url, stage: 'category-fights', error: err.message, categoryName: cat.name });
         }
@@ -86,10 +155,36 @@ async function scanTournaments(tournamentUrls) {
     )
   );
 
-  lastScan = { tournaments, categories: allCategories, occurrences, scannedAt: new Date().toISOString() };
+  lastScan.tournaments = tournaments;
+  lastScan.scannedAt = new Date().toISOString();
   scheduleSave();
 
-  return { tournaments, categoriesScanned: allCategories.length, errors };
+  return {
+    tournaments,
+    categoriesScanned: lastScan.categories.length,
+    errors,
+    tournamentDaysScanned: dayTournaments.map((dt) => dt.sourceUrl),
+  };
+}
+
+// Plano B pra quando a busca direta (scanTournaments) não achar um atleta:
+// varre TODAS as páginas daquele tournament_day (mais lento, mas completo).
+// Só adiciona o que ainda não tínhamos — não refaz trabalho.
+async function fullScanTournament(tournamentUrl) {
+  const listUrl = categoriesUrlFromInput(tournamentUrl);
+  if (!isTournamentDayUrl(listUrl)) {
+    return { added: 0, totalPages: 0, note: 'não é uma URL de tournament_day paginada por tatame' };
+  }
+  const tournamentId = tournamentIdFromUrl(listUrl);
+  const fullPages = await discoverTournamentDayPages(listUrl);
+  let added = 0;
+  for (const p of fullPages) {
+    if (state.categories[p.url]) continue; // já tínhamos essa página
+    ingestPage(p, listUrl, tournamentId);
+    added += 1;
+  }
+  scheduleSave();
+  return { added, totalPages: fullPages.length };
 }
 
 // Pra cada atleta do roster, sugere candidatos (categoria + nome achado no
@@ -152,4 +247,4 @@ function clearMapping(athleteId) {
   scheduleSave();
 }
 
-module.exports = { scanTournaments, suggestMappings, confirmMapping, clearMapping, getLastScan };
+module.exports = { scanTournaments, fullScanTournament, suggestMappings, confirmMapping, clearMapping, getLastScan };

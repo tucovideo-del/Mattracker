@@ -365,11 +365,13 @@ $('#closeSetup').addEventListener('click', () => {
   loadStatus();
 });
 
+let lastTournamentDaysScanned = [];
+
 $('#scanBtn').addEventListener('click', async () => {
   const raw = $('#tournamentUrls').value.trim();
   const urls = raw.split('\n').map((s) => s.trim()).filter(Boolean);
   if (urls.length === 0) return;
-  $('#scanStatus').textContent = 'Buscando categorias e cruzando com o roster… isso pode levar um tempinho.';
+  $('#scanStatus').textContent = 'Pulando direto pro tatame esperado de cada atleta…';
   $('#scanBtn').disabled = true;
   try {
     const result = await api('/api/setup/scan', {
@@ -377,11 +379,14 @@ $('#scanBtn').addEventListener('click', async () => {
       body: JSON.stringify({ tournamentUrls: urls }),
     });
     lastSuggestions = result.suggestions;
+    lastTournamentDaysScanned = result.tournamentDaysScanned || [];
+    const unmatched = lastSuggestions.filter((s) => s.candidates.length === 0).length;
     $('#scanStatus').textContent =
-      `${result.categoriesScanned} categorias escaneadas.` +
+      `${result.categoriesScanned} página(s) escaneada(s), ${unmatched} atleta(s) sem candidato ainda.` +
       (result.errors.length ? ` ${result.errors.length} erro(s) — veja o console.` : '');
     if (result.errors.length) console.warn('Erros no scan:', result.errors);
     renderSuggestions(lastSuggestions);
+    renderFullScanControls(unmatched);
     $('#suggestionsSection').hidden = false;
   } catch (err) {
     $('#scanStatus').textContent = `Erro: ${err.message}`;
@@ -389,6 +394,41 @@ $('#scanBtn').addEventListener('click', async () => {
     $('#scanBtn').disabled = false;
   }
 });
+
+function renderFullScanControls(unmatchedCount) {
+  const el = $('#fullScanControls');
+  el.innerHTML = '';
+  if (unmatchedCount === 0 || lastTournamentDaysScanned.length === 0) return;
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = `Tem atleta sem candidato — pode ser tatame reatribuído. Busca completa (mais lenta) varre TODOS os tatames de um torneio:`;
+  el.appendChild(hint);
+  for (const url of lastTournamentDaysScanned) {
+    const btn = document.createElement('button');
+    btn.className = 'secondary-btn';
+    btn.textContent = `Busca completa — ${url}`;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Varrendo todos os tatames…';
+      try {
+        const result = await api('/api/setup/full-scan', {
+          method: 'POST',
+          body: JSON.stringify({ tournamentUrl: url }),
+        });
+        lastSuggestions = result.suggestions;
+        const stillUnmatched = lastSuggestions.filter((s) => s.candidates.length === 0).length;
+        $('#scanStatus').textContent = `Busca completa: +${result.added} tatame(s) novo(s) de ${result.totalPages}. ${stillUnmatched} atleta(s) ainda sem candidato.`;
+        renderSuggestions(lastSuggestions);
+        renderFullScanControls(stillUnmatched);
+      } catch (err) {
+        btn.textContent = `Erro: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    el.appendChild(btn);
+  }
+}
 
 function renderSuggestions(suggestions) {
   const el = $('#suggestionsList');

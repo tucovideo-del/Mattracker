@@ -5,7 +5,7 @@ const express = require('express');
 
 const { buildBoard } = require('./src/board');
 const { listRosterWithMappingInfo } = require('./src/board-list');
-const { scanTournaments, suggestMappings, confirmMapping, clearMapping, getLastScan } = require('./src/setup');
+const { scanTournaments, fullScanTournament, suggestMappings, confirmMapping, clearMapping, getLastScan } = require('./src/setup');
 const { pollOnce, mappedCategoryUrls } = require('./src/poller');
 const { startPolling } = require('./src/poller');
 const { state, toggleCovered, addRosterEntry, updateRosterEntry, removeRosterEntry } = require('./src/store');
@@ -95,6 +95,19 @@ app.post(
 app.get('/api/setup/suggestions', (req, res) => {
   res.json(suggestMappings());
 });
+
+// Plano B: quando a busca rápida (scan) não achou um atleta, varre TODAS
+// as páginas (tatames) daquele tournament_day em vez de só pular pro
+// tatame-base esperado. Mais lento, mas cobre atleta que mudou de tatame.
+app.post(
+  '/api/setup/full-scan',
+  asyncHandler(async (req, res) => {
+    const tournamentUrl = req.body && req.body.tournamentUrl;
+    if (!tournamentUrl) return res.status(400).json({ error: 'tournamentUrl é obrigatório' });
+    const result = await fullScanTournament(tournamentUrl);
+    res.json({ ...result, suggestions: suggestMappings() });
+  })
+);
 
 app.get('/api/setup/categories', (req, res) => {
   res.json(getLastScan());

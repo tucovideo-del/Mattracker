@@ -67,6 +67,19 @@ function tournamentIdFromUrl(url) {
 
 async function fetchCategoriesList(tournamentUrlOrId) {
   const listUrl = categoriesUrlFromInput(tournamentUrlOrId);
+
+  // Formato real do site: /tournaments/{id}/tournament_days/{day_id},
+  // paginado por tatame (?page=N). Descoberto ao vivo pelo Tuco — ver
+  // discoverTournamentDayPages() acima pra detalhes dos critérios de parada.
+  if (isTournamentDayUrl(listUrl)) {
+    const pages = await discoverTournamentDayPages(listUrl);
+    return {
+      tournamentId: tournamentIdFromUrl(listUrl),
+      sourceUrl: listUrl,
+      categories: pages.map((p) => ({ url: p.url, name: p.name, fights: p.fights })),
+    };
+  }
+
   const html = await fetchHtml(listUrl);
   const $ = cheerio.load(html);
 
@@ -285,24 +298,141 @@ function dedupeFights(fights) {
   return [...byKey.values()].sort((a, b) => (a.fightNumber || 0) - (b.fightNumber || 0));
 }
 
-async function fetchCategoryFights(categoryUrl) {
-  const html = await fetchHtml(categoryUrl);
-  const $ = cheerio.load(html);
-
+function parseFightsFromDom($) {
   let fights = strategyTableRows($);
   if (fights.length === 0) fights = strategyBracketCards($);
   if (fights.length === 0) fights = strategyFullTextScan($);
+  return dedupeFights(fights).filter((f) => f.athletes.length > 0 || f.mat || f.scheduledTime);
+}
 
-  fights = dedupeFights(fights).filter((f) => f.athletes.length > 0 || f.mat || f.scheduledTime);
-
-  // nome da categoria: título da página, geralmente em h1/h2
-  const categoryName =
+function extractPageTitle($) {
+  return (
     $('h1').first().text().replace(/\s+/g, ' ').trim() ||
     $('h2').first().text().replace(/\s+/g, ' ').trim() ||
     $('title').first().text().replace(/\s+/g, ' ').trim() ||
-    null;
+    null
+  );
+}
 
+async function fetchCategoryFights(categoryUrl) {
+  const html = await fetchHtml(categoryUrl);
+  const $ = cheerio.load(html);
+  const fights = parseFightsFromDom($);
+  const categoryName = extractPageTitle($);
   return { categoryUrl, categoryName, fights, fetchedAt: new Date().toISOString() };
+}
+
+// ---------------------------------------------------------------------------
+// Páginas "tournament_day" — no bjjcompsystem.com cada página (?page=N) é a
+// agenda de UM TATAME só naquele dia. A relação entre número da página e
+// número do tatame é LINEAR mas com um offset que muda por torneio/dia
+// (confirmado ao vivo: page=1 → Mat 35, page=24 → Mat 58, ou seja
+// `mat = firstMat + (page - 1)`, onde firstMat é o que a page=1 mostrar).
+// Isso deixa dois jeitos de achar um tatame:
+//   1. RÁPIDO (usado no setup): busca a page=1 pra descobrir firstMat, daí
+//      pula direto pra `page = mat - firstMat + 1` do tatame que o roster
+//      já espera pro atleta — sem varrer página por página.
+//   2. VARREDURA COMPLETA (fallback): pagina 1,2,3... até acabar, pra quando
+//      não sabemos (ou erramos) o tatame esperado.
+// ---------------------------------------------------------------------------
+
+const TOURNAMENT_DAY_RE = /\/tournament_days\/\d+/;
+
+function isTournamentDayUrl(url) {
+  try {
+    return TOURNAMENT_DAY_RE.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+function buildPageUrl(dayUrl, page) {
+  const u = new URL(dayUrl);
+  u.searchParams.set('page', String(page));
+  return u.toString();
+}
+
+function pageNumberFromUrl(url) {
+  try {
+    const p = new URL(url).searchParams.get('page');
+    return p ? parseInt(p, 10) : 1;
+  } catch {
+    return null;
+  }
+}
+
+// Busca uma página específica (?page=N) de um tournament_day e já extrai o
+// tatame + as lutas dela.
+async function fetchTournamentDayPage(dayUrl, page) {
+  const url = buildPageUrl(dayUrl, page);
+  const html = await fetchHtml(url);
+  const $ = cheerio.load(html);
+  const fights = parseFightsFromDom($);
+  const mat = mostCommonMat(fights);
+  const name = mat ? `Mat ${mat}` : extractPageTitle($) || `Página ${page}`;
+  return { url, page, mat, name, fights };
+}
+
+function mostCommonMat(fights) {
+  const counts = new Map();
+  for (const f of fights) {
+    if (!f.mat) continue;
+    counts.set(f.mat, (counts.get(f.mat) || 0) + 1);
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [mat, count] of counts) {
+    if (count > bestCount) {
+      best = mat;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+// Varre ?page=1,2,3... de uma URL de tournament_day até acabarem os
+// tatames. Critérios de parada (o site real nunca foi visto por este
+// código — ver README —, então são propositalmente conservadores pra não
+// cortar tatames legítimos que estejam vazios num certo momento do dia):
+//   - erro de rede/HTTP (ex.: 404 numa página que não existe)
+//   - conteúdo idêntico ao de QUALQUER página já vista nesta varredura
+//     (sinal de que o site "grudou" no último page válido em vez de dar
+//     erro pra número de página fora do range)
+// Páginas sem nenhuma luta reconhecida são puladas (não viram categoria)
+// mas NÃO param a varredura sozinhas — só o teto de segurança (maxPages)
+// e os dois critérios acima. Isso é mais lento no pior caso, mas evita
+// perder um tatame por causa de uma lacuna no meio da agenda.
+async function discoverTournamentDayPages(dayUrl, { maxPages = 150 } = {}) {
+  const base = new URL(dayUrl);
+  base.searchParams.delete('page');
+
+  const pages = [];
+  const seenHtml = new Set();
+
+  for (let page = 1; page <= maxPages; page++) {
+    const u = new URL(base.toString());
+    u.searchParams.set('page', String(page));
+    const pageUrl = u.toString();
+
+    let html;
+    try {
+      html = await fetchHtml(pageUrl);
+    } catch {
+      break;
+    }
+    if (seenHtml.has(html)) break;
+    seenHtml.add(html);
+
+    const $ = cheerio.load(html);
+    const fights = parseFightsFromDom($);
+    if (fights.length === 0) continue;
+
+    const mat = mostCommonMat(fights);
+    const name = mat ? `Mat ${mat}` : extractPageTitle($) || `Página ${page}`;
+    pages.push({ url: pageUrl, name, fights });
+  }
+
+  return pages;
 }
 
 // Junta todos os nomes de atletas aparecendo numa categoria (pra fase de match).
@@ -321,6 +451,19 @@ module.exports = {
   fetchCategoriesList,
   fetchCategoryFights,
   athleteNamesFromFights,
+  isTournamentDayUrl,
+  buildPageUrl,
+  pageNumberFromUrl,
+  fetchTournamentDayPage,
+  discoverTournamentDayPages,
   // exportado pra debug/testes
-  _internal: { strategyTableRows, strategyBracketCards, strategyFullTextScan, parseFightBlock, dedupeFights },
+  _internal: {
+    strategyTableRows,
+    strategyBracketCards,
+    strategyFullTextScan,
+    parseFightBlock,
+    dedupeFights,
+    parseFightsFromDom,
+    mostCommonMat,
+  },
 };
