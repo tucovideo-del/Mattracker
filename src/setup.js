@@ -16,6 +16,41 @@ const {
 } = require('./scraper');
 const { findCandidates, normalize } = require('./match');
 const { state, scheduleSave, addRosterEntry } = require('./store');
+const { TOURNAMENT_SOURCES } = require('./tournament-sources-default');
+
+const LABEL_BY_TOURNAMENT_ID = new Map(
+  TOURNAMENT_SOURCES.map((t) => [tournamentIdFromUrl(t.url), t.label]).filter(([id]) => id)
+);
+
+// Um atleta pode competir em mais de um torneio (ex.: Gi E NoGi do mesmo
+// evento) — cada um vira um occurrence separado, então sem isso os
+// candidatos de AMBOS aparecem misturados pra cada entrada do roster,
+// mesmo a errada. Usa o rótulo do torneio (event/modality já conhecidos
+// no roster) pra desempatar: candidato do torneio certo sobe, do torneio
+// errado desce — mas nunca some, o operador ainda pode escolher na mão.
+function tournamentLabelMatchesAthlete(label, athlete) {
+  if (!label) return null; // sem rótulo (torneio não catalogado) — neutro
+  const l = label.toLowerCase();
+  const isNoGiLabel = /nogi|no-gi|no gi/.test(l);
+  const isKidsLabel = /kid/.test(l);
+  const isMasterLabel = /master/.test(l);
+  const isConLabel = /\bcon\b/.test(l) && !isKidsLabel;
+
+  if (athlete.event === 'WM') return isMasterLabel;
+  if (athlete.event === 'KIDS') {
+    if (!isKidsLabel) return false;
+    if (athlete.modality === 'NOGI') return isNoGiLabel;
+    if (athlete.modality === 'GI') return !isNoGiLabel;
+    return true;
+  }
+  if (athlete.event === 'CON') {
+    if (!isConLabel) return false;
+    if (athlete.modality === 'NOGI') return isNoGiLabel;
+    if (athlete.modality === 'GI') return !isNoGiLabel;
+    return true;
+  }
+  return null;
+}
 
 function pLimit(concurrency) {
   let active = 0;
@@ -195,18 +230,28 @@ function suggestMappings(threshold = 0.5) {
       if (score.length === 0) continue;
       const existing = byCategory.get(occ.categoryUrl);
       if (!existing || score[0].score > existing.score) {
+        const tournamentLabel = LABEL_BY_TOURNAMENT_ID.get(occ.tournamentId) || null;
         byCategory.set(occ.categoryUrl, {
           categoryUrl: occ.categoryUrl,
           categoryName: occ.categoryName,
           tournamentUrl: occ.tournamentUrl,
           tournamentId: occ.tournamentId,
+          tournamentLabel,
+          tournamentMatch: tournamentLabelMatchesAthlete(tournamentLabel, athlete),
           siteName: occ.name,
           team: occ.team || null,
           score: score[0].score,
         });
       }
     }
-    const candidates = [...byCategory.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+    // atleta que compete em mais de um torneio (ex.: Gi e NoGi do mesmo
+    // evento) aparece com candidatos de AMBOS — prioriza o do torneio
+    // certo pro roster (tournamentMatch true > desconhecido > errado),
+    // e só desempata por score dentro do mesmo grupo.
+    const matchRank = (c) => (c.tournamentMatch === true ? 0 : c.tournamentMatch === null ? 1 : 2);
+    const candidates = [...byCategory.values()]
+      .sort((a, b) => matchRank(a) - matchRank(b) || b.score - a.score)
+      .slice(0, 5);
     const existingMapping = state.mappings[athlete.id];
     return {
       athleteId: athlete.id,

@@ -493,15 +493,19 @@ function renderSuggestions(suggestions) {
     const options = [...s.candidates];
     let optionsHtml = options
       .map((c, i) => {
-        const low = c.score < 0.85 ? ' low-confidence' : '';
-        const checked = i === 0 && c.score >= 0.85 ? 'checked' : '';
+        const wrongTournament = c.tournamentMatch === false;
+        const low = c.score < 0.85 || wrongTournament ? ' low-confidence' : '';
+        const checked = i === 0 && c.score >= 0.85 && !wrongTournament ? 'checked' : '';
         const teamStr = c.team ? ` · ${escapeHtml(c.team)}` : '';
+        const tournamentStr = c.tournamentLabel
+          ? ` · <strong>${escapeHtml(c.tournamentLabel)}</strong>${wrongTournament ? ' ⚠️ torneio diferente do esperado' : ''}`
+          : '';
         return `
           <div class="candidate-option${low}">
             <input type="radio" name="pick-${s.athleteId}" id="opt-${s.athleteId}-${i}" value="${i}" ${checked} />
             <label for="opt-${s.athleteId}-${i}">
               <span class="candidate-name">${escapeHtml(c.siteName)}</span>
-              <span class="candidate-meta">${escapeHtml(c.categoryName || '')}${teamStr} <span class="score-tag">(${Math.round(c.score * 100)}%)</span></span>
+              <span class="candidate-meta">${escapeHtml(c.categoryName || '')}${teamStr}${tournamentStr} <span class="score-tag">(${Math.round(c.score * 100)}%)</span></span>
             </label>
           </div>`;
       })
