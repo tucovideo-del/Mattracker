@@ -186,7 +186,7 @@ async function scanTournaments(tournamentUrls) {
         mat: p.mat,
         fights: p.fights.length,
         athletes: p.fights.reduce((sum, f) => sum + f.athletes.length, 0),
-        sampleAthletes: p.fights.slice(0, 3).map((f) => f.athletes.join(' vs ')),
+        sampleAthletes: p.fights.slice(0, 6).map((f) => f.athletes.join(' vs ')),
       }))
       .sort((a, b) => (a.page || 0) - (b.page || 0)),
   }));

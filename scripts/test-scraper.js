@@ -33,6 +33,38 @@ const bjjMatScheduleHtml = `
 </body></html>
 `;
 
+// Reproduz o problema real visto em produção: a página tem VÁRIAS <table>
+// (menu de navegação, seletor de idioma, filtro) além da tabela com a
+// chave de verdade — o parser tinha que escolher a certa, não misturar
+// tudo (foi assim que "BJJCOMPSYSTEM Home|Mats", "English Português" e
+// "Filter" viraram atletas fantasma).
+const bjjMatScheduleWithChromeHtml = `
+<html><body>
+<table class="navbar">
+  <tr><td>BJJCOMPSYSTEM ® Home</td><td>Mats</td></tr>
+  <tr><td>English</td><td>Português</td></tr>
+</table>
+<table class="filters">
+  <tr><td>Filter</td></tr>
+</table>
+<h1>Mat 6</h1>
+<table>
+  <tr><td>World Master / Female / Black / Medium-Heavy</td></tr>
+  <tr><td>GABRIELLA FERNANDES</td></tr>
+  <tr><td>Inspirit Jiu Jitsu Academy</td></tr>
+  <tr><td>ANA SOUZA</td></tr>
+  <tr><td>Alliance</td></tr>
+  <tr><td>World Master / Female / Black / Medium-Heavy</td></tr>
+  <tr><td>Winner of Fight 90, Mat 6</td></tr>
+  <tr><td>Winner of Fight 91, Mat 6</td></tr>
+</table>
+<table class="footer">
+  <tr><td>Terms of Use</td><td>Privacy Policy</td></tr>
+  <tr><td>Live streaming of the event on FloGrappling! Watch now!</td></tr>
+</table>
+</body></html>
+`;
+
 // Reproduz a estrutura real do bjjcompsystem.com (visto por Tuco ao vivo):
 // nome do atleta numa linha, ACADEMIA na linha de baixo, dentro da MESMA
 // célula — precisa separar as duas, não tratar a academia como se fosse o
@@ -114,6 +146,7 @@ const r2 = run('strategyBracketCards', cardHtml, strategyBracketCards);
 const r3 = run('strategyFullTextScan', textHtml, strategyFullTextScan);
 const r4 = run('strategyTableRows (nome+academia na mesma célula)', teamTableHtml, strategyTableRows);
 const r5 = run('strategyBjjMatSchedule (árvore de chave real)', bjjMatScheduleHtml, strategyBjjMatSchedule);
+const r6 = run('strategyBjjMatSchedule (com chrome do site misturado)', bjjMatScheduleWithChromeHtml, strategyBjjMatSchedule);
 
 let ok = true;
 if (r1.length < 2) { console.error('FAIL: table strategy found too few fights'); ok = false; }
@@ -171,6 +204,32 @@ if (r5.length !== 2) {
     console.error('FAIL: bjj mat schedule leaked a category header or round marker into athletes[]');
     ok = false;
   }
+}
+
+if (r6.length !== 1) {
+  console.error(`FAIL: chrome-mixed page expected exactly 1 real fight (got ${r6.length})`);
+  ok = false;
+} else {
+  const m = r6[0];
+  if (!m.athletes.includes('GABRIELLA FERNANDES') || !m.athletes.includes('ANA SOUZA')) {
+    console.error('FAIL: chrome-mixed page missing real athletes (got: ' + JSON.stringify(m.athletes) + ')');
+    ok = false;
+  }
+  if (!m.teams.includes('Inspirit Jiu Jitsu Academy') || !m.teams.includes('Alliance')) {
+    console.error('FAIL: chrome-mixed page missing real teams (got: ' + JSON.stringify(m.teams) + ')');
+    ok = false;
+  }
+  if (m.mat !== '6') {
+    console.error('FAIL: chrome-mixed page mat wrong (got: ' + m.mat + ')');
+    ok = false;
+  }
+}
+const chromeLeaked = r6.some((f) =>
+  f.athletes.some((a) => /bjjcompsystem|flograpp|privacy|terms of use|filter|^home$|^mats$|^english$|^português$/i.test(a))
+);
+if (chromeLeaked) {
+  console.error('FAIL: site chrome (nav/footer/filter) leaked into athletes[]');
+  ok = false;
 }
 
 console.log(ok ? '\nALL OK' : '\nFAILURES ABOVE');

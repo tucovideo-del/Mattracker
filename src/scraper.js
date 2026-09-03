@@ -369,30 +369,66 @@ function isCategoryHeaderLine(s) {
   return (s.match(/\s\/\s/g) || []).length >= 2;
 }
 
-function strategyBjjMatSchedule($) {
+// Chrome do site (menu, rodapé, banner de streaming, seletor de idioma...)
+// aparece IDÊNTICO em toda página do bjjcompsystem.com, geralmente dentro
+// de alguma <table> de layout/navegação — não é conteúdo de luta nenhuma,
+// então filtra antes de processar as linhas.
+const RE_SITE_CHROME =
+  /bjjcompsystem|flograppling|privacy policy|terms of use|watch now|live streaming|^filter$|^home$|^mats$|^english$|^português$/i;
+
+function rowsFromTable($, table) {
   const rows = [];
-  $('table').each((_, table) => {
-    $(table)
-      .find('tr')
-      .each((_, tr) => {
-        const cellEls = $(tr).find('td,th').toArray();
-        const text = cellEls
-          .flatMap((c) => leafLines($, c))
-          .filter(Boolean)
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (text) rows.push(text);
-      });
-  });
-  // fallback: sem <table>, tenta linhas soltas (li/div/p folhas) na ordem do documento
-  if (rows.length === 0) {
+  $(table)
+    .find('tr')
+    .each((_, tr) => {
+      const cellEls = $(tr).find('td,th').toArray();
+      const text = cellEls
+        .flatMap((c) => leafLines($, c))
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text && !RE_SITE_CHROME.test(text)) rows.push(text);
+    });
+  return rows;
+}
+
+// Sinal de que uma tabela é a árvore de chave de verdade (não menu/rodapé):
+// linhas com cabeçalho de categoria, placeholder "Winner of Fight" ou
+// marcador de rodada. Uma tabela de navegação nunca tem isso.
+function bracketSignalScore(rows) {
+  let score = 0;
+  for (const r of rows) {
+    if (RE_WINNER_OF.test(r) || RE_ROUND_MARKER.test(r) || isCategoryHeaderLine(r)) score += 1;
+  }
+  return score;
+}
+
+function strategyBjjMatSchedule($) {
+  const tables = $('table').toArray();
+  let rows = [];
+  let bestScore = 0;
+  for (const table of tables) {
+    const tableRows = rowsFromTable($, table);
+    const score = bracketSignalScore(tableRows);
+    if (score > bestScore) {
+      bestScore = score;
+      rows = tableRows;
+    }
+  }
+
+  // nenhuma tabela teve sinal de chave nenhum (formato diferente, ou tudo
+  // filtrado como chrome) — tenta linhas soltas (li/div/p folhas) na ordem
+  // do documento como último recurso antes de desistir dessa estratégia.
+  if (bestScore === 0) {
+    rows = [];
     $('tr, li, p, div').each((_, el) => {
       const $el = $(el);
       if ($el.children('tr, li, p, div').length > 0) return; // só folhas
       const t = $el.text().replace(/\s+/g, ' ').trim();
-      if (t) rows.push(t);
+      if (t && !RE_SITE_CHROME.test(t)) rows.push(t);
     });
+    if (bracketSignalScore(rows) === 0) return [];
   }
   if (rows.length === 0) return [];
 
