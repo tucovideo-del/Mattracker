@@ -73,16 +73,16 @@ varrer tudo de novo (bem mais rápido). O botão **"Busca completa"** por
 torneio sempre refaz a varredura inteira e atualiza esse cache, útil se um
 tatame novo apareceu no meio do dia ou algo parece desatualizado.
 
-Pra alguns torneios específicos, a relação tatame→página já foi conferida
-na mão e cadastrada em `src/tournament-sources-default.js`
-(`matPageOffset`) — hoje só o **World Master** (`page = tatame`,
-confirmado: `page=1` é o Mat 1, `page=34` é o Mat 34). Nesses casos o
-Setup pula direto pros tatames que o roster espera desde a *primeira*
-varredura, sem precisar da varredura completa — mas só quando alguém
-conferiu de verdade abrindo o link (já provamos que não dá pra assumir
-isso pra todos: outro torneio teve `page=1` → Mat 10 e `page=3` → Mat 9,
-não-linear). Se descobrir a relação de outro torneio, é só adicionar o
-`matPageOffset` dele nesse arquivo.
+`tournament-sources-default.js` também guarda `matPageOffset` quando a
+relação tatame→página de um torneio foi conferida na mão (hoje só o
+**World Master**: `page = tatame`, confirmado — `page=1` é o Mat 1,
+`page=34` é o Mat 34) — mas isso é só **documentação**, não usado como
+atalho: mesmo sabendo a relação de antemão, a *primeira* varredura de
+cada URL sempre varre página por página de verdade. Um atalho que só
+busca os tatames que o roster já espera pode deixar de fora um atleta
+cujo tatame mudou ou cujo dado no roster está desatualizado — completude
+> velocidade aqui. A velocidade vem do cache (`state.matPageIndex`, acima):
+rápido na segunda varredura da mesma URL, completo e correto na primeira.
 
 Tanto o scan quanto a busca completa (botão por torneio, útil pra forçar
 uma nova varredura de um torneio específico) rodam em **background** no servidor:

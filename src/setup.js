@@ -24,13 +24,6 @@ const LABEL_BY_TOURNAMENT_ID = new Map(
   TOURNAMENT_SOURCES.map((t) => [tournamentIdFromUrl(t.url), t.label]).filter(([id]) => id)
 );
 
-// tatame->página CONFIRMADO na mão pra torneios específicos (ver comentário
-// em tournament-sources-default.js) — chave é a URL exata, não o id, pra
-// não vazar pra outro dia do mesmo torneio sem confirmação própria.
-const MAT_PAGE_OFFSET_BY_URL = new Map(
-  TOURNAMENT_SOURCES.filter((t) => t.matPageOffset != null).map((t) => [t.url, t.matPageOffset])
-);
-
 // Um atleta pode competir em mais de um torneio (ex.: Gi E NoGi do mesmo
 // evento) — cada um vira um occurrence separado, então sem isso os
 // candidatos de AMBOS aparecem misturados pra cada entrada do roster,
@@ -139,41 +132,21 @@ async function scanTournaments(tournamentUrls) {
             let discovered;
 
             if (cachedIndex && Object.keys(cachedIndex).length > 0) {
+              // já varremos essa URL antes e sabemos exatamente quais
+              // páginas têm tatame — vai direto nelas.
               const pageNums = [...new Set(Object.values(cachedIndex))];
               discovered = (
                 await Promise.all(pageNums.map((page) => fetchTournamentDayPage(listUrl, page).catch(() => null)))
               ).filter(Boolean);
-            } else if (MAT_PAGE_OFFSET_BY_URL.has(listUrl)) {
-              // sem cache ainda, mas alguém já confirmou na mão a relação
-              // tatame->página desse torneio — vai direto nos tatames que
-              // o roster espera em vez de recorrer à varredura completa.
-              const offset = MAT_PAGE_OFFSET_BY_URL.get(listUrl);
-              const wantedMats = [...new Set(state.roster.map((a) => parseInt(a.baseMat, 10)).filter(Number.isFinite))];
-              discovered = (
-                await Promise.all(
-                  wantedMats
-                    .filter((mat) => mat - offset >= 1)
-                    .map(async (mat) => {
-                      const result = await fetchTournamentDayPage(listUrl, mat - offset).catch(() => null);
-                      if (!result) return null;
-                      // confia no tatame calculado (confirmado na mão) mesmo
-                      // se a página não repetir "Mat N" em texto nenhum
-                      // (ex.: chave já toda decidida, sem "Winner of Fight"
-                      // sobrando pra gente extrair o número de outro jeito).
-                      return { ...result, mat: result.mat != null ? result.mat : String(mat) };
-                    })
-                )
-              ).filter(Boolean);
-              if (discovered.length > 0) {
-                state.matPageIndex[listUrl] = matPageMapFromPages(discovered);
-              } else {
-                // nem o atalho confirmado achou nada — pode ser o site fora
-                // do ar, ou a relação mudou; cai pra varredura completa em
-                // vez de desistir em silêncio.
-                discovered = await discoverTournamentDayPages(listUrl);
-                state.matPageIndex[listUrl] = matPageMapFromPages(discovered);
-              }
             } else {
+              // primeira vez vendo essa URL: varre TODAS as páginas de
+              // verdade (page=1, 2, 3...) — mesmo sabendo de antemão a
+              // relação tatame->página de um torneio (ver
+              // tournament-sources-default.js), um atalho que só busca os
+              // tatames que o roster já espera pode deixar de fora um
+              // atleta cujo tatame mudou ou não bate com o dado do roster.
+              // Varredura completa = dado completo, sem depender de
+              // suposição nenhuma sobre quem devia estar onde.
               discovered = await discoverTournamentDayPages(listUrl);
               state.matPageIndex[listUrl] = matPageMapFromPages(discovered);
             }
@@ -303,6 +276,11 @@ function suggestMappings(threshold = 0.5) {
     // e só desempata por score dentro do mesmo grupo.
     const matchRank = (c) => (c.tournamentMatch === true ? 0 : c.tournamentMatch === null ? 1 : 2);
     const candidates = [...byCategory.values()]
+      // candidato de torneio comprovadamente errado só vale a pena mostrar
+      // se o nome bater muito forte (>= 85%) — um match fraco (coincidência
+      // de sobrenome, tipo "Freitas") num torneio que já sabemos que não é
+      // o certo é só ruído, não ajuda o operador a decidir nada.
+      .filter((c) => !(c.tournamentMatch === false && c.score < 0.85))
       .sort((a, b) => matchRank(a) - matchRank(b) || b.score - a.score)
       .slice(0, 5);
     const existingMapping = state.mappings[athlete.id];
