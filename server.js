@@ -133,6 +133,16 @@ app.get('/api/setup/scan/status', (req, res) => {
   res.json(scanJob);
 });
 
+// Diagnóstico enxuto do último scan: por torneio, o tatame que a page=1
+// revelou e o que CADA página realmente trouxe (tatame, nº de lutas e
+// atletas, amostra de nomes) — sem o ruído das sugestões inteiras. Serve
+// pra conferir rápido se o "pulo" calculado tá caindo em página com gente
+// de verdade.
+app.get('/api/debug/scan-diagnostics', (req, res) => {
+  if (!scanJob.result) return res.json({ status: scanJob.status, diagnostics: null });
+  res.json({ status: scanJob.status, diagnostics: scanJob.result.diagnostics || null });
+});
+
 app.get('/api/setup/suggestions', (req, res) => {
   res.json(suggestMappings());
 });

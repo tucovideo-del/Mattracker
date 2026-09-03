@@ -12,6 +12,7 @@ const {
   tournamentIdFromUrl,
   isTournamentDayUrl,
   buildPageUrl,
+  pageNumberFromUrl,
   fetchTournamentDayPage,
   discoverTournamentDayPages,
 } = require('./scraper');
@@ -170,11 +171,32 @@ async function scanTournaments(tournamentUrls) {
   lastScan.scannedAt = new Date().toISOString();
   scheduleSave();
 
+  // Diagnóstico completo de cada torneio: qual tatame a page=1 revelou,
+  // e o que cada página realmente trouxe (tatame detectado, quantas lutas
+  // e atletas) — pra conferir de uma vez se o "pulo" calculado caiu numa
+  // página com gente de verdade ou foi parar em outro lugar.
+  const diagnostics = dayTournaments.map((dt) => ({
+    sourceUrl: dt.sourceUrl,
+    tournamentId: dt.tournamentId,
+    firstMat: dt.firstMat,
+    pages: [...dt.pages.values()]
+      .map((p) => ({
+        page: pageNumberFromUrl(p.url),
+        url: p.url,
+        mat: p.mat,
+        fights: p.fights.length,
+        athletes: p.fights.reduce((sum, f) => sum + f.athletes.length, 0),
+        sampleAthletes: p.fights.slice(0, 3).map((f) => f.athletes.join(' vs ')),
+      }))
+      .sort((a, b) => (a.page || 0) - (b.page || 0)),
+  }));
+
   return {
     tournaments,
     categoriesScanned: lastScan.categories.length,
     errors,
     tournamentDaysScanned: dayTournaments.map((dt) => dt.sourceUrl),
+    diagnostics,
   };
 }
 
