@@ -53,26 +53,20 @@ persistente, ver aviso acima).
 
 O site pagina cada `/tournaments/{id}/tournament_days/{day_id}` por
 **tatame** (`?page=N`) — cada página é a agenda de UM tatame só naquele dia.
-A relação entre número da página e número do tatame é linear mas o offset
-muda por torneio/dia (ex.: confirmado ao vivo — `page=1` era o Mat 35,
-`page=24` era o Mat 58 nesse torneio específico).
 
-Em vez de varrer página por página (lento — pode ser 50+ tatames por dia),
-o Setup faz assim:
+⚠️ A relação entre número da página e número do tatame **não é confiável de
+calcular** — foi tentado um atalho linear (`page = tatame - tatame_da_page_1
++ 1`) baseado num exemplo confirmado ao vivo (`page=1` → Mat 35, `page=24` →
+Mat 58), mas em outro torneio do mesmo evento `page=1` mostrou Mat 10 e
+`page=3` mostrou Mat 9 — o número do tatame pode até **cair** conforme a
+página sobe. Sem um padrão confiável, o Setup varre **todas as páginas de
+cada torneio de verdade** (`discoverTournamentDayPages` em
+`src/scraper.js`), lendo o tatame real do conteúdo de cada página em vez de
+adivinhar pelo número dela. Mais lento (pode levar alguns minutos com os 5
+torneios do evento), mas correto.
 
-1. Busca só a `page=1` de cada URL colada, pra descobrir o tatame inicial
-   daquele dia.
-2. Calcula direto a página de cada tatame-base que o roster já espera
-   (`page = tatame - tatame_da_page_1 + 1`) e busca só essas páginas.
-3. Cruza os nomes achados contra o roster (fuzzy, como sempre).
-
-Isso resolve a maioria dos atletas em segundos. Se algum atleta mudou de
-tatame (ou o dado do roster está desatualizado) e não aparece com nenhum
-candidato, a tela de Setup mostra um botão **"Busca completa"** por
-torneio — aí sim varre todos os tatames daquele dia (mais lento, mas
-completo) e atualiza as sugestões.
-
-Tanto o scan quanto a busca completa rodam em **background** no servidor:
+Tanto o scan quanto a busca completa (botão por torneio, útil pra forçar
+uma nova varredura de um torneio específico) rodam em **background** no servidor:
 o clique só inicia e a tela fica consultando o progresso a cada 2s, em vez
 de segurar uma única requisição HTTP aberta o tempo todo. Isso evita erro
 502 em hosts com timeout de request (Render e outros cortam conexões
@@ -96,6 +90,13 @@ definido) ou um par nome+academia. Não tem horário nenhum nessa página, entã
 `scheduledTime` fica sempre vazio — a urgência 🔴/🟡/⚪ nessas categorias
 depende só da posição na fila do tatame (a próxima luta pendente = 🔴), não
 de horário previsto.
+
+Cada página também tem chrome do site (menu, seletor de idioma, banner de
+streaming, banner de cookies) espalhado em outras `<table>` da mesma
+página — o parser identifica qual tabela é a chave de verdade (pontuando
+por sinais de luta: cabeçalho de categoria, "Winner of Fight", marcador de
+rodada) e ignora as outras, além de filtrar textos conhecidos do site
+como segurança extra.
 
 ## Buscar por academia
 

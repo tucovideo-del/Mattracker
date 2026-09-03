@@ -417,7 +417,7 @@ $('#scanBtn').addEventListener('click', async () => {
     });
     const job = await pollJob(
       '/api/setup/scan/status',
-      (i) => ($('#scanStatus').textContent = `Pulando direto pro tatame esperado de cada atleta… (${i * 2}s)`)
+      (i) => ($('#scanStatus').textContent = `Varrendo os tatames de cada torneio (pode levar alguns minutos)… (${i * 2}s)`)
     );
     if (job.status === 'error') {
       $('#scanStatus').textContent = `Erro: ${job.error}`;

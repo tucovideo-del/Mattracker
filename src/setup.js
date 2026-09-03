@@ -11,9 +11,7 @@ const {
   categoriesUrlFromInput,
   tournamentIdFromUrl,
   isTournamentDayUrl,
-  buildPageUrl,
   pageNumberFromUrl,
-  fetchTournamentDayPage,
   discoverTournamentDayPages,
 } = require('./scraper');
 const { findCandidates, normalize } = require('./match');
@@ -66,13 +64,15 @@ function ingestPage(p, tournamentUrl, tournamentId) {
   }
 }
 
-// bjjcompsystem.com pagina cada tournament_day por TATAME (?page=N), com um
-// offset que muda por torneio/dia (page=1 pode ser Mat 35 num torneio e Mat
-// 1 noutro). Em vez de varrer página por página, buscamos só a page=1 pra
-// descobrir esse offset e pulamos direto pra página de cada tatame que o
-// roster já espera (`page = mat - firstMat + 1`) — bem mais rápido que
-// varrer tudo. Ver fullScanTournament() pro plano B quando isso não achar
-// um atleta (tatame reatribuído, ou dado do roster desatualizado).
+// bjjcompsystem.com pagina cada tournament_day por TATAME (?page=N). A
+// relação entre número da página e número do tatame NÃO é confiável de
+// adivinhar (confirmado ao vivo: page=1 mostrou Mat 10 e page=3 mostrou
+// Mat 9 no mesmo torneio — o número do tatame pode até CAIR conforme a
+// página sobe) — então em vez de calcular um atalho, varremos página por
+// página de cada torneio de verdade e lemos o tatame real do conteúdo de
+// cada uma (discoverTournamentDayPages, que já para sozinha quando as
+// páginas acabam). Mais lento que um atalho, mas correto — e como o scan
+// roda em background (ver /api/setup/scan), não trava a UI enquanto isso.
 async function scanTournaments(tournamentUrls) {
   const limit = pLimit(6);
   const errors = [];
@@ -89,21 +89,11 @@ async function scanTournaments(tournamentUrls) {
           const listUrl = categoriesUrlFromInput(input);
           if (isTournamentDayUrl(listUrl)) {
             const tournamentId = tournamentIdFromUrl(listUrl);
-            const pages = new Map();
-            // page=1 pode não ter luta reconhecida ainda (tatame ocioso
-            // nesse momento do dia) — tenta mais algumas antes de desistir
-            // de calcular o offset página→tatame pra esse torneio.
-            let firstMat = null;
-            for (let probe = 1; probe <= 6 && firstMat == null; probe++) {
-              const p = await fetchTournamentDayPage(listUrl, probe);
-              pages.set(p.url, p);
-              if (p.mat != null) {
-                const matNum = parseInt(p.mat, 10);
-                if (Number.isFinite(matNum)) firstMat = matNum - (probe - 1);
-              }
-            }
-            tournaments.push({ tournamentId, sourceUrl: listUrl, categoriesCount: null });
-            dayTournaments.push({ sourceUrl: listUrl, tournamentId, firstMat, pages });
+            const discovered = await discoverTournamentDayPages(listUrl);
+            const pages = new Map(discovered.map((p) => [p.url, p]));
+            const firstReal = discovered.find((p) => p.mat != null);
+            tournaments.push({ tournamentId, sourceUrl: listUrl, categoriesCount: pages.size });
+            dayTournaments.push({ sourceUrl: listUrl, tournamentId, firstMat: firstReal ? firstReal.mat : null, pages });
           } else {
             const { tournamentId, sourceUrl, categories } = await fetchCategoriesList(input);
             tournaments.push({ tournamentId, sourceUrl, categoriesCount: categories.length });
@@ -111,33 +101,6 @@ async function scanTournaments(tournamentUrls) {
           }
         } catch (err) {
           errors.push({ input, stage: 'discover', error: err.message });
-        }
-      })
-    )
-  );
-
-  // pula direto pra página de cada tatame-base do roster, por torneio.
-  const targeted = [];
-  for (const dt of dayTournaments) {
-    const firstMatNum = parseInt(dt.firstMat, 10);
-    if (!Number.isFinite(firstMatNum)) continue; // page=1 não trouxe tatame legível
-    const wantedMats = new Set(state.roster.map((a) => parseInt(a.baseMat, 10)).filter(Number.isFinite));
-    for (const mat of wantedMats) {
-      const page = mat - firstMatNum + 1;
-      if (page >= 1) targeted.push({ dt, page });
-    }
-  }
-
-  await Promise.all(
-    targeted.map(({ dt, page }) =>
-      limit(async () => {
-        const url = buildPageUrl(dt.sourceUrl, page);
-        if (dt.pages.has(url)) return; // já temos (ex.: page calculada = page 1)
-        try {
-          const result = await fetchTournamentDayPage(dt.sourceUrl, page);
-          dt.pages.set(result.url, result);
-        } catch (err) {
-          errors.push({ input: dt.sourceUrl, stage: `mat-page-${page}`, error: err.message });
         }
       })
     )

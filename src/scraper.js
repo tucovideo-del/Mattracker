@@ -140,11 +140,19 @@ const RE_BYE = /\bbye\b/i;
 const NOISE_LINE =
   /^(fight|luta|mat|tatame|round|winner|vencedor|vs\.?|x|time|hor[aá]rio|result(ado)?|bracket|chave)$/i;
 
+// Chrome do site (menu, rodapé, banner de streaming, seletor de idioma,
+// banner de cookies...) aparece IDÊNTICO em toda página do
+// bjjcompsystem.com — não é conteúdo de luta nenhuma. Compartilhado por
+// TODAS as estratégias via looksLikeName, não só a específica do site.
+const RE_SITE_CHROME =
+  /bjjcompsystem|flograppling|privacy policy|terms of use|watch now|live streaming|manage cookies|non-essential|accept all|^done$|^days$|^filter$|^home$|^mats$|^english$|^português$|home\|mats/i;
+
 function looksLikeName(s) {
   const t = s.trim();
   if (t.length < 2 || t.length > 60) return false;
   if (/\d/.test(t)) return false;
   if (NOISE_LINE.test(t)) return false;
+  if (RE_SITE_CHROME.test(t)) return false;
   if (RE_MAT.test(t) || RE_FIGHT.test(t) || RE_TIME.test(t)) return false;
   return /[a-zà-ÿ]/i.test(t);
 }
@@ -368,13 +376,6 @@ const RE_WINNER_OF = /winner of (?:fight|luta)\s*#?\s*\d+,?\s*(?:mat|tatame)\s*#
 function isCategoryHeaderLine(s) {
   return (s.match(/\s\/\s/g) || []).length >= 2;
 }
-
-// Chrome do site (menu, rodapé, banner de streaming, seletor de idioma...)
-// aparece IDÊNTICO em toda página do bjjcompsystem.com, geralmente dentro
-// de alguma <table> de layout/navegação — não é conteúdo de luta nenhuma,
-// então filtra antes de processar as linhas.
-const RE_SITE_CHROME =
-  /bjjcompsystem|flograppling|privacy policy|terms of use|watch now|live streaming|^filter$|^home$|^mats$|^english$|^português$/i;
 
 function rowsFromTable($, table) {
   const rows = [];
