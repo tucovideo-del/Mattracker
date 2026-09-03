@@ -139,8 +139,12 @@ app.get('/api/setup/scan/status', (req, res) => {
 // pra conferir rápido se o "pulo" calculado tá caindo em página com gente
 // de verdade.
 app.get('/api/debug/scan-diagnostics', (req, res) => {
-  if (!scanJob.result) return res.json({ status: scanJob.status, diagnostics: null });
-  res.json({ status: scanJob.status, diagnostics: scanJob.result.diagnostics || null });
+  if (!scanJob.result) return res.json({ status: scanJob.status, diagnostics: null, errors: null });
+  res.json({
+    status: scanJob.status,
+    diagnostics: scanJob.result.diagnostics || null,
+    errors: scanJob.result.errors || [],
+  });
 });
 
 app.get('/api/setup/suggestions', (req, res) => {

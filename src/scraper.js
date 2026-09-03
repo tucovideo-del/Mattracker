@@ -145,7 +145,7 @@ const NOISE_LINE =
 // bjjcompsystem.com — não é conteúdo de luta nenhuma. Compartilhado por
 // TODAS as estratégias via looksLikeName, não só a específica do site.
 const RE_SITE_CHROME =
-  /bjjcompsystem|flograppling|privacy policy|terms of use|watch now|live streaming|manage cookies|non-essential|accept all|^done$|^days$|^filter$|^home$|^mats$|^english$|^português$|home\|mats/i;
+  /bjjcompsystem|flograppling|privacy policy|terms of use|watch now|live streaming|manage cookies|non-essential|analytics cookies|essential cookies|cookie settings|accept all|reject\b|^done$|^days$|^filter$|^home$|^mats$|english\s*\/?\s*português|português\s*\/?\s*english|home\|mats/i;
 
 function looksLikeName(s) {
   const t = s.trim();
@@ -629,7 +629,12 @@ async function discoverTournamentDayPages(dayUrl, { maxPages = 150 } = {}) {
     let html;
     try {
       html = await fetchHtml(pageUrl);
-    } catch {
+    } catch (err) {
+      // erro na page=1 é um sinal forte de que algo está errado com essa
+      // URL/torneio (não só "acabaram os tatames") — deixa subir pra
+      // aparecer nos erros do scan em vez de devolver silenciosamente uma
+      // lista vazia sem dizer por quê.
+      if (page === 1) throw new Error(`falha ao buscar page=1 (${pageUrl}): ${err.message}`);
       break;
     }
     if (seenHtml.has(html)) break;
