@@ -347,8 +347,134 @@ function dedupeFights(fights) {
   return [...byKey.values()].sort((a, b) => (a.fightNumber || 0) - (b.fightNumber || 0));
 }
 
+// ---------------------------------------------------------------------------
+// Estratégia D: página de tatame do bjjcompsystem.com (confirmada ao vivo).
+//
+// Essa página NÃO é uma lista de lutas com horário — é a ÁRVORE DE CHAVE
+// completa daquele tatame, achatada em uma linha de tabela por item:
+//   - cabeçalho de categoria: "Adult / Male / WHITE / Feather"
+//   - nome do atleta, numa linha
+//   - academia dele, na linha seguinte
+//   - placeholder de vaga ainda não decidida: "Winner of Fight N, Mat M"
+//   - marcador de rodada: "(QF)", "(SF)", "(F)"
+// Cada cabeçalho de categoria OU marcador de rodada abre exatamente UMA
+// luta (2 vagas); cada vaga é um placeholder OU um par nome+academia. Não
+// tem horário nenhum nessa página — scheduledTime fica sempre null aqui.
+// ---------------------------------------------------------------------------
+
+const RE_ROUND_MARKER = /^\(\s*(r\d+|qf|sf|f|final)\s*\)$/i;
+const RE_WINNER_OF = /winner of (?:fight|luta)\s*#?\s*\d+,?\s*(?:mat|tatame)\s*#?\s*(\d+)/i;
+
+function isCategoryHeaderLine(s) {
+  return (s.match(/\s\/\s/g) || []).length >= 2;
+}
+
+function strategyBjjMatSchedule($) {
+  const rows = [];
+  $('table').each((_, table) => {
+    $(table)
+      .find('tr')
+      .each((_, tr) => {
+        const cellEls = $(tr).find('td,th').toArray();
+        const text = cellEls
+          .flatMap((c) => leafLines($, c))
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (text) rows.push(text);
+      });
+  });
+  // fallback: sem <table>, tenta linhas soltas (li/div/p folhas) na ordem do documento
+  if (rows.length === 0) {
+    $('tr, li, p, div').each((_, el) => {
+      const $el = $(el);
+      if ($el.children('tr, li, p, div').length > 0) return; // só folhas
+      const t = $el.text().replace(/\s+/g, ' ').trim();
+      if (t) rows.push(t);
+    });
+  }
+  if (rows.length === 0) return [];
+
+  let mat = null;
+  for (const r of rows) {
+    const w = RE_WINNER_OF.exec(r);
+    if (w) {
+      mat = w[1];
+      break;
+    }
+  }
+  if (!mat) {
+    for (const r of rows) {
+      const m = RE_MAT.exec(r);
+      if (m) {
+        mat = m[1];
+        break;
+      }
+    }
+  }
+
+  const fights = [];
+  let pending = []; // até 2 slots: { name, team } (team pode ficar null) ou { placeholder: true }
+  let counter = 0;
+
+  const flush = () => {
+    const real = pending.filter((s) => s.name);
+    pending = [];
+    if (real.length === 0) return;
+    counter += 1;
+    fights.push({
+      fightNumber: counter,
+      mat,
+      scheduledTime: null,
+      athletes: real.map((s) => s.name),
+      teams: real.map((s) => s.team || null),
+      winner: null,
+      // real.length < 2 aqui é "o outro lado ainda não foi decidido" (vaga
+      // com "Winner of Fight N"), não uma bye de verdade — só marca bye
+      // quando o texto "BYE" aparece mesmo como nome do oponente.
+      bye: real.some((s) => RE_BYE.test(s.name)),
+      status: 'scheduled',
+      raw: real.map((s) => `${s.name}${s.team ? ' (' + s.team + ')' : ''}`).join(' vs ').slice(0, 400),
+    });
+  };
+
+  for (const row of rows) {
+    if (RE_ROUND_MARKER.test(row)) {
+      flush(); // marcador de rodada fecha a luta anterior e abre uma nova
+      continue;
+    }
+    if (isCategoryHeaderLine(row)) {
+      flush(); // novo cabeçalho de categoria = nova luta (round 1)
+      continue;
+    }
+    if (RE_WINNER_OF.test(row)) {
+      pending.push({ placeholder: true });
+      if (pending.length >= 2) flush();
+      continue;
+    }
+    if (!looksLikeName(row)) continue; // número de seed solto, etc.
+
+    const openSlot = pending.find((s) => s.name && !s.team);
+    if (openSlot) {
+      openSlot.team = row;
+    } else {
+      pending.push({ name: row });
+    }
+    // flusha assim que as duas vagas estiverem "fechadas" (placeholder, ou
+    // nome+academia completos) — não precisa esperar o próximo cabeçalho.
+    if (pending.length >= 2 && pending.every((s) => s.placeholder || s.team)) {
+      flush();
+    }
+  }
+  flush();
+
+  return fights;
+}
+
 function parseFightsFromDom($) {
-  let fights = strategyTableRows($);
+  let fights = strategyBjjMatSchedule($);
+  if (fights.length === 0) fights = strategyTableRows($);
   if (fights.length === 0) fights = strategyBracketCards($);
   if (fights.length === 0) fights = strategyFullTextScan($);
   return dedupeFights(fights).filter((f) => f.athletes.length > 0 || f.mat || f.scheduledTime);
@@ -526,6 +652,7 @@ module.exports = {
     strategyTableRows,
     strategyBracketCards,
     strategyFullTextScan,
+    strategyBjjMatSchedule,
     parseFightBlock,
     dedupeFights,
     parseFightsFromDom,

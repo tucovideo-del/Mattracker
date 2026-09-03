@@ -5,7 +5,33 @@
 
 const cheerio = require('cheerio');
 const { _internal } = require('../src/scraper');
-const { strategyTableRows, strategyBracketCards, strategyFullTextScan } = _internal;
+const { strategyTableRows, strategyBracketCards, strategyFullTextScan, strategyBjjMatSchedule } = _internal;
+
+// Reconstrução da estrutura REAL confirmada por Tuco em produção
+// (GET /api/debug/category numa página de tatame de verdade): não é uma
+// lista de lutas com horário, é a árvore de chave inteira daquele tatame,
+// achatada — uma linha de tabela por item (cabeçalho de categoria, nome,
+// academia, placeholder de vaga não decidida, marcador de rodada).
+const bjjMatScheduleHtml = `
+<html><body>
+<h1>Mat 35</h1>
+<table>
+  <tr><td>Adult / Male / WHITE / Feather</td></tr>
+  <tr><td>Daniel Junior St Jean</td></tr>
+  <tr><td>Alliance</td></tr>
+  <tr><td>Zhu Leyang</td></tr>
+  <tr><td>Escuadron Clase A</td></tr>
+  <tr><td>Adult / Male / WHITE / Feather</td></tr>
+  <tr><td>Winner of Fight 5, Mat 35</td></tr>
+  <tr><td>Winner of Fight 6, Mat 35</td></tr>
+  <tr><td>(QF)</td></tr>
+  <tr><td>Jesus Villasenor Esparza</td></tr>
+  <tr><td>Zenith BJJ</td></tr>
+  <tr><td>Aaron Nathaniel Bold</td></tr>
+  <tr><td>Carlson Gracie Team</td></tr>
+</table>
+</body></html>
+`;
 
 // Reproduz a estrutura real do bjjcompsystem.com (visto por Tuco ao vivo):
 // nome do atleta numa linha, ACADEMIA na linha de baixo, dentro da MESMA
@@ -87,6 +113,7 @@ const r1 = run('strategyTableRows', tableHtml, strategyTableRows);
 const r2 = run('strategyBracketCards', cardHtml, strategyBracketCards);
 const r3 = run('strategyFullTextScan', textHtml, strategyFullTextScan);
 const r4 = run('strategyTableRows (nome+academia na mesma célula)', teamTableHtml, strategyTableRows);
+const r5 = run('strategyBjjMatSchedule (árvore de chave real)', bjjMatScheduleHtml, strategyBjjMatSchedule);
 
 let ok = true;
 if (r1.length < 2) { console.error('FAIL: table strategy found too few fights'); ok = false; }
@@ -109,6 +136,39 @@ else {
   }
   if (!f4.teams || !f4.teams.some((t) => /Seraphim/i.test(t || '')) || !f4.teams.some((t) => /David Fadel/i.test(t || ''))) {
     console.error('FAIL: team-table strategy did not capture teams[] correctly (got: ' + JSON.stringify(f4.teams) + ')');
+    ok = false;
+  }
+}
+
+if (r5.length !== 2) {
+  console.error(`FAIL: bjj mat schedule strategy expected 2 real fights (got ${r5.length})`);
+  ok = false;
+} else {
+  const [m1, m2] = r5;
+  if (!m1.athletes.includes('Daniel Junior St Jean') || !m1.athletes.includes('Zhu Leyang')) {
+    console.error('FAIL: bjj mat schedule missing round-1 match athletes (got: ' + JSON.stringify(m1.athletes) + ')');
+    ok = false;
+  }
+  if (!m1.teams.includes('Alliance') || !m1.teams.includes('Escuadron Clase A')) {
+    console.error('FAIL: bjj mat schedule missing round-1 teams (got: ' + JSON.stringify(m1.teams) + ')');
+    ok = false;
+  }
+  if (m1.mat !== '35' || m2.mat !== '35') {
+    console.error('FAIL: bjj mat schedule mat number wrong (got: ' + m1.mat + ', ' + m2.mat + ')');
+    ok = false;
+  }
+  if (!m2.athletes.includes('Jesus Villasenor Esparza') || !m2.athletes.includes('Aaron Nathaniel Bold')) {
+    console.error('FAIL: bjj mat schedule missing QF match athletes (got: ' + JSON.stringify(m2.athletes) + ')');
+    ok = false;
+  }
+  // as duas vagas "Winner of Fight N, Mat M" (placeholder, sem atleta real)
+  // não podem virar uma luta fantasma
+  if (r5.some((f) => f.athletes.length === 0)) {
+    console.error('FAIL: bjj mat schedule produced a phantom fight with no real athletes');
+    ok = false;
+  }
+  if (r5.some((f) => f.athletes.some((a) => a.includes(' / ') || /^\(?(qf|sf|f)\)?$/i.test(a)))) {
+    console.error('FAIL: bjj mat schedule leaked a category header or round marker into athletes[]');
     ok = false;
   }
 }

@@ -79,9 +79,23 @@ de segurar uma única requisição HTTP aberta o tempo todo. Isso evita erro
 paradas por ~100s, mesmo que o servidor ainda esteja processando
 normalmente por trás).
 
-O parser separa o nome do atleta (caixa alta, ex. "THAINARA APARECIDA...")
-da linha da academia logo abaixo (ex. "David Fadel Brazilian Jiu-Jitsu"),
-pra não confundir uma com a outra na hora de casar com o roster.
+Cada página de tatame **não é uma lista de lutas com horário** — é a árvore
+de chave inteira daquele tatame (confirmado ao vivo em produção), achatada
+em uma linha por item:
+
+- cabeçalho de categoria: `Adult / Male / WHITE / Feather`
+- nome do atleta, numa linha
+- a academia dele, na linha seguinte
+- vaga ainda não decidida: `Winner of Fight N, Mat M`
+- marcador de rodada: `(QF)`, `(SF)`, `(F)`
+
+O parser (`strategyBjjMatSchedule` em `src/scraper.js`) reconstrói as lutas
+a partir disso: cada cabeçalho de categoria ou marcador de rodada abre uma
+luta nova (2 vagas); cada vaga é um placeholder (ainda sem oponente
+definido) ou um par nome+academia. Não tem horário nenhum nessa página, então
+`scheduledTime` fica sempre vazio — a urgência 🔴/🟡/⚪ nessas categorias
+depende só da posição na fila do tatame (a próxima luta pendente = 🔴), não
+de horário previsto.
 
 ## Buscar por academia
 
@@ -92,32 +106,21 @@ que ainda não está no roster (o botão "+ Adicionar e mapear" cadastra e já
 confirma o mapeamento num clique só, só falta escolher dia/evento). Precisa
 rodar um scan (ou Busca completa) antes pra ter dado pra procurar.
 
-## ⚠️ Calibração do parser (leia antes do dia do evento)
+## ⚠️ Se o parser errar de novo
 
-Este projeto foi construído num ambiente sem acesso de rede ao
-`bjjcompsystem.com`, então o parser (`src/scraper.js`) **não foi validado
-contra o HTML real do site** — ele foi escrito de forma defensiva, com três
-estratégias em cascata (tabela → cards de bracket → varredura de texto por
-"FIGHT N"/"MAT N"/horário), testadas contra HTML sintético que imita a
-estrutura descrita na spec.
+O parser foi calibrado contra dados reais de produção (não só HTML
+sintético), mas o bjjcompsystem.com pode ter páginas com formato diferente
+(ex.: uma fase que já não seja eliminação simples, ou uma categoria com
+grupo/round-robin). Se o Setup continuar achando atleta errado:
 
-Antes de confiar no painel no dia do evento:
-
-1. Suba o app com internet de verdade.
-2. Pegue a URL de categorias de um dos tournaments (`/tournaments/{id}/categories`).
-3. Abra `GET /api/debug/tournament?url=<url>` no navegador — confirma se a
-   lista de categorias foi extraída (nomes + links).
-4. Pegue a URL de uma categoria específica e abra
-   `GET /api/debug/category?url=<url>` — confirma se as lutas saíram com
-   `mat`, `scheduledTime`, `athletes` e `winner` preenchidos corretamente.
-5. Se algum campo vier errado ou vazio, as três estratégias estão isoladas
-   e comentadas em `src/scraper.js` (`strategyTableRows`,
-   `strategyBracketCards`, `strategyFullTextScan`) — ajuste ali. Não deveria
-   ser preciso mexer em mais nada (store, board, UI já trabalham em cima do
-   formato normalizado `{fightNumber, mat, scheduledTime, athletes, winner, status}`).
-
-Esses dois endpoints de debug não usam cache nem tocam no estado — são
-seguros de chamar quantas vezes quiser durante a calibração.
+1. Pega a URL exata que falhou e chama, no navegador:
+   `GET /api/debug/category?url=<url-encodada>` — mostra o JSON com o que
+   foi extraído (mat, athletes, teams, raw) sem tocar no estado salvo.
+2. Me manda esse JSON (ou cola aqui na conversa) — é o jeito mais rápido de
+   eu ver o formato real e ajustar `strategyBjjMatSchedule` em
+   `src/scraper.js` (as estratégias mais antigas — tabela genérica, cards
+   de bracket, varredura de texto — continuam como fallback pra formatos
+   diferentes desse).
 
 ## Fluxo de setup (dia do evento)
 
@@ -158,18 +161,29 @@ histórico de resultados.
 - Botão "📸 Marcar cobertura" em cada card = modo shooter, marca que aquela
   luta específica já foi filmada/fotografada.
 
-### Limitações conhecidas (heurísticas)
+### Limitações conhecidas
 
-- **Campeão vs. "venceu, aguardando próxima"**: como não temos a árvore
-  completa do chaveamento, o app assume campeão quando o atleta venceu a
-  luta de maior número da categoria e não há próxima agendada. Perto da
-  final vale conferir visualmente.
-- **Posição na fila do tatame**: calculada só com as lutas da categoria
-  monitorada naquele tatame — não vê o tatame inteiro (outras categorias
-  não mapeadas também usam o mesmo tatame). É uma referência, não a fila
-  real completa.
-- **Horário sem AM/PM**: se o site não informar, hora < 8 é tratada como PM
-  (ex.: "3:06" → 15:06), igual à convenção usada nos horários base da spec.
+- **Sem horário previsto**: a página de tatame real não expõe hora nenhuma
+  (é a árvore de chave, não uma agenda com relógio) — `scheduledTime` fica
+  sempre vazio. O 🔴 AGORA depende só de "essa é a próxima luta pendente
+  nesse tatame", não de "faltam X minutos". Os badges 🟡 EM BREVE e os
+  horários base do roster (spec seção 6) continuam só como referência
+  inicial pré-scan.
+- **Resultado (W/L) e log automático ainda não funcionam nessa página**: o
+  parser da árvore de chave (`strategyBjjMatSchedule`) não tenta detectar
+  vencedor ainda — ele sempre marca a luta como `scheduled`. Quando uma
+  vaga "Winner of Fight N" for preenchida com um nome de verdade num poll
+  seguinte, o app já vai mostrar a próxima luta certa (o atleta "avançou"
+  continua funcionando), só o badge "Lutou (W/L)" e o log de resultados
+  (seção 8 da spec) que não disparam nesse tipo de página ainda.
+- **Posição na fila do tatame**: agora é calculada em cima da árvore de
+  chave inteira daquele tatame (todas as categorias que jogam lá), então
+  reflete bem quem vem antes/depois — mas a "próxima luta" de um atleta que
+  ainda depende do resultado de outra partida (vaga "Winner of Fight N")
+  não aparece até esse resultado sair.
+- **Campeão vs. "venceu, aguardando próxima"**: heurística baseada na
+  posição da luta dentro da página daquele tatame — perto da final vale
+  conferir visualmente.
 
 ## Roster
 
