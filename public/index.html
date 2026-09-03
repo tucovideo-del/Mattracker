@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Mat Tracker — Inspirit</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <h1>Mat Tracker <span class="topbar-sub">Inspirit</span></h1>
+    <div class="topbar-actions">
+      <button id="soundToggle" class="icon-btn" title="Alerta sonoro/vibração" aria-label="Alerta sonoro">🔕</button>
+      <button id="setupBtn" class="icon-btn" title="Setup / Roster" aria-label="Setup">⚙️</button>
+    </div>
+  </div>
+  <div class="freshness-row">
+    <span id="freshness">—</span>
+    <button id="refreshBtn" class="refresh-btn">↻ Atualizar</button>
+  </div>
+</header>
+
+<nav class="filters">
+  <div class="filter-group" id="dayFilters"></div>
+  <div class="filter-group" id="eventFilters"></div>
+</nav>
+
+<div id="conflictBanner" class="conflict-banner" hidden></div>
+
+<main id="board">
+  <section id="activeSection">
+    <ul id="activeList" class="fight-list"></ul>
+    <p id="emptyActive" class="empty-msg" hidden>Nenhum atleta monitorado com luta prevista agora. 🎉</p>
+  </section>
+
+  <section class="collapsible">
+    <button class="collapsible-header" data-target="waitingList">
+      <span>Aguardando <span id="waitingCount" class="count-badge">0</span></span>
+      <span class="chev">▾</span>
+    </button>
+    <ul id="waitingList" class="fight-list collapsed"></ul>
+  </section>
+
+  <section class="collapsible">
+    <button class="collapsible-header" data-target="finishedList">
+      <span>Finalizados <span id="finishedCount" class="count-badge">0</span></span>
+      <span class="chev">▾</span>
+    </button>
+    <ul id="finishedList" class="fight-list collapsed"></ul>
+  </section>
+</main>
+
+<!-- ===================== SETUP OVERLAY ===================== -->
+<div id="setupOverlay" class="overlay" hidden>
+  <div class="overlay-panel">
+    <div class="overlay-header">
+      <h2>Setup</h2>
+      <button id="closeSetup" class="icon-btn" aria-label="Fechar">✕</button>
+    </div>
+
+    <div class="overlay-body">
+      <section class="setup-section">
+        <h3>1. Tournaments</h3>
+        <p class="hint">Cole as URLs de <code>/tournaments/{id}/categories</code>, uma por linha.</p>
+        <textarea id="tournamentUrls" rows="3" placeholder="https://bjjcompsystem.com/tournaments/123/categories&#10;https://bjjcompsystem.com/tournaments/456/categories"></textarea>
+        <button id="scanBtn" class="primary-btn">Buscar categorias</button>
+        <p id="scanStatus" class="hint"></p>
+      </section>
+
+      <section class="setup-section" id="suggestionsSection" hidden>
+        <h3>2. Confirmar atletas</h3>
+        <p class="hint">Selecione a categoria certa pra cada atleta. Amarelo = confiança baixa, confira antes de confirmar.</p>
+        <div id="suggestionsList"></div>
+        <button id="confirmBtn" class="primary-btn">Salvar mapeamentos selecionados</button>
+        <p id="confirmStatus" class="hint"></p>
+      </section>
+
+      <section class="setup-section">
+        <h3>Roster</h3>
+        <div id="rosterMgmt"></div>
+        <details class="add-athlete">
+          <summary>+ Adicionar atleta</summary>
+          <div class="add-athlete-form">
+            <input id="newName" placeholder="Nome" />
+            <select id="newDay">
+              <option value="THU">Qui</option>
+              <option value="FRI">Sex</option>
+              <option value="SAT">Sáb</option>
+            </select>
+            <select id="newEvent">
+              <option value="WM">World Master</option>
+              <option value="CON">Jiu Jitsu CON</option>
+              <option value="KIDS">Kids</option>
+            </select>
+            <input id="newTime" placeholder="Horário base (ex: 11:29)" />
+            <input id="newMat" placeholder="Tatame base" />
+            <button id="addAthleteBtn">Adicionar</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="setup-section">
+        <h3>Histórico</h3>
+        <button id="loadLogBtn" class="secondary-btn">Carregar log de resultados</button>
+        <ul id="logList" class="log-list"></ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
