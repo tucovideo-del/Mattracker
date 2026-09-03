@@ -46,7 +46,9 @@ function entry(day, name, baseTime, baseMat, event, modality) {
 const ROSTER = [
   // ---- World Master ----
   entry('THU', 'Gabriel Castro', '9:54', 21, 'WM'),
+  entry('THU', 'David Fadel Neto', '11:05', 22, 'WM'),
   entry('THU', 'Gabriella Fernandes', '11:14', 6, 'WM'),
+  entry('THU', 'Thainara Aparecida F. da Silveira', '11:22', 12, 'WM'),
   entry('THU', 'Bruna Valois', '11:44', 17, 'WM'),
   entry('THU', 'Rodrigo Freitas', '12:19', 28, 'WM'),
   entry('FRI', 'Jeremiah Mendoza', '9:51', 24, 'WM'),
