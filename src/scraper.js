@@ -44,18 +44,17 @@ function absolutize(url, base) {
 // Lista de categorias de um tournament
 // ---------------------------------------------------------------------------
 
-// Aceita tanto a URL completa (.../tournaments/123/categories) quanto só o id.
+// Aceita a URL completa que o operador colar — na prática o
+// bjjcompsystem.com usa vários formatos (`/tournaments/{id}/categories`,
+// `/tournaments/{id}/tournament_days/{day_id}`, etc.), então NÃO mexemos
+// no path de uma URL já completa, só normalizamos o caso de vir só o id.
 function categoriesUrlFromInput(input) {
   const s = String(input).trim();
   if (/^\d+$/.test(s)) {
     return `https://bjjcompsystem.com/tournaments/${s}/categories`;
   }
   try {
-    const u = new URL(s);
-    if (!/categories\/?$/.test(u.pathname)) {
-      u.pathname = u.pathname.replace(/\/?$/, '') + '/categories';
-    }
-    return u.toString();
+    return new URL(s).toString();
   } catch {
     return s;
   }
@@ -74,7 +73,7 @@ async function fetchCategoriesList(tournamentUrlOrId) {
   const seen = new Map();
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
-    if (!/categor(y|ies)\/\d+/.test(href) && !/\/categories\/\d+/.test(href)) return;
+    if (!/(categor(y|ies)|bracket)[a-z]*\/\d+/i.test(href)) return;
     const abs = absolutize(href, listUrl);
     if (!abs) return;
     const name = $(el).text().replace(/\s+/g, ' ').trim();
@@ -95,6 +94,18 @@ async function fetchCategoriesList(tournamentUrlOrId) {
         if (!seen.has(abs)) seen.set(abs, m[2]);
       }
     });
+  }
+
+  // Fallback final: a página não linka pra sub-páginas de categoria — ela
+  // JÁ contém as lutas direto (comum em páginas de "dia do campeonato" tipo
+  // /tournament_days/{id}). Trata a própria URL como uma categoria só, e
+  // fetchCategoryFights faz o full-text-scan nela igual faria numa categoria de verdade.
+  if (seen.size === 0) {
+    const pageTitle =
+      $('h1').first().text().replace(/\s+/g, ' ').trim() ||
+      $('title').first().text().replace(/\s+/g, ' ').trim() ||
+      listUrl;
+    seen.set(listUrl, pageTitle);
   }
 
   return {
