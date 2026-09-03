@@ -42,6 +42,7 @@ async function loadMeta() {
   state.tournamentSources = meta.tournamentSources || [];
   renderFilters();
   prefillTournamentUrls();
+  renderTournamentSourcesList();
 }
 
 // Pré-preenche a caixa de URLs do Setup com os torneios fixos do evento —
@@ -51,6 +52,19 @@ function prefillTournamentUrls() {
   const el = $('#tournamentUrls');
   if (!el || el.value.trim() || state.tournamentSources.length === 0) return;
   el.value = state.tournamentSources.map((t) => t.url).join('\n');
+}
+
+// Mostra o rótulo de cada torneio (ex. "World Master") acima da caixa de
+// URLs cruas, pra saber o que é o quê de relance.
+function renderTournamentSourcesList() {
+  const el = $('#tournamentSourcesList');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const t of state.tournamentSources) {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>${escapeHtml(t.label || 'sem rótulo')}</strong><span class="source-url">${escapeHtml(t.url)}</span>`;
+    el.appendChild(li);
+  }
 }
 
 function renderFilters() {
