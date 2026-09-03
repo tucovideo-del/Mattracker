@@ -367,17 +367,38 @@ $('#closeSetup').addEventListener('click', () => {
 
 let lastTournamentDaysScanned = [];
 
+// Scan e full-scan rodam em background no servidor (evita 502 de proxy —
+// Render e afins matam requests que passam de ~100s, mesmo com o servidor
+// ainda processando normalmente). O cliente só inicia (POST, responde na
+// hora) e fica perguntando o status até terminar.
+async function pollJob(statusUrl, onTick) {
+  for (let i = 0; ; i++) {
+    const job = await api(statusUrl);
+    if (job.status === 'done' || job.status === 'error') return job;
+    onTick(i);
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
 $('#scanBtn').addEventListener('click', async () => {
   const raw = $('#tournamentUrls').value.trim();
   const urls = raw.split('\n').map((s) => s.trim()).filter(Boolean);
   if (urls.length === 0) return;
-  $('#scanStatus').textContent = 'Pulando direto pro tatame esperado de cada atleta…';
   $('#scanBtn').disabled = true;
   try {
-    const result = await api('/api/setup/scan', {
+    await api('/api/setup/scan', {
       method: 'POST',
       body: JSON.stringify({ tournamentUrls: urls }),
     });
+    const job = await pollJob(
+      '/api/setup/scan/status',
+      (i) => ($('#scanStatus').textContent = `Pulando direto pro tatame esperado de cada atleta… (${i * 2}s)`)
+    );
+    if (job.status === 'error') {
+      $('#scanStatus').textContent = `Erro: ${job.error}`;
+      return;
+    }
+    const result = job.result;
     lastSuggestions = result.suggestions;
     lastTournamentDaysScanned = result.tournamentDaysScanned || [];
     const unmatched = lastSuggestions.filter((s) => s.candidates.length === 0).length;
@@ -409,12 +430,20 @@ function renderFullScanControls(unmatchedCount) {
     btn.textContent = `Busca completa — ${url}`;
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      btn.textContent = 'Varrendo todos os tatames…';
       try {
-        const result = await api('/api/setup/full-scan', {
+        await api('/api/setup/full-scan', {
           method: 'POST',
           body: JSON.stringify({ tournamentUrl: url }),
         });
+        const job = await pollJob(
+          `/api/setup/full-scan/status?tournamentUrl=${encodeURIComponent(url)}`,
+          (i) => (btn.textContent = `Varrendo todos os tatames… (${i * 2}s)`)
+        );
+        if (job.status === 'error') {
+          btn.textContent = `Erro: ${job.error}`;
+          return;
+        }
+        const result = job.result;
         lastSuggestions = result.suggestions;
         const stillUnmatched = lastSuggestions.filter((s) => s.candidates.length === 0).length;
         $('#scanStatus').textContent = `Busca completa: +${result.added} tatame(s) novo(s) de ${result.totalPages}. ${stillUnmatched} atleta(s) ainda sem candidato.`;

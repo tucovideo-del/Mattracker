@@ -89,17 +89,42 @@ app.delete('/api/roster/:id', (req, res) => {
 // Setup (scan + confirmação de mapeamento)
 // ---------------------------------------------------------------------------
 
-app.post(
-  '/api/setup/scan',
-  asyncHandler(async (req, res) => {
-    const urls = req.body && req.body.tournamentUrls;
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return res.status(400).json({ error: 'tournamentUrls (array) é obrigatório' });
-    }
-    const scanResult = await scanTournaments(urls);
-    res.json({ ...scanResult, suggestions: suggestMappings() });
-  })
-);
+// Scan e full-scan rodam em background — respondem na hora (202) e o
+// cliente consulta o progresso via polling. Isso evita que o proxy do
+// Render (ou qualquer host com timeout de request, geralmente ~100s) mate
+// a conexão no meio de um scan que demora mais que isso (vira 502 mesmo
+// com o servidor ainda processando normalmente por trás).
+let scanJob = { status: 'idle', startedAt: null, finishedAt: null, result: null, error: null };
+
+app.post('/api/setup/scan', (req, res) => {
+  const urls = req.body && req.body.tournamentUrls;
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return res.status(400).json({ error: 'tournamentUrls (array) é obrigatório' });
+  }
+  if (scanJob.status === 'running') {
+    return res.status(409).json({ error: 'já tem um scan em andamento' });
+  }
+  scanJob = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, result: null, error: null };
+  scanTournaments(urls)
+    .then((result) => {
+      scanJob = {
+        status: 'done',
+        startedAt: scanJob.startedAt,
+        finishedAt: new Date().toISOString(),
+        result: { ...result, suggestions: suggestMappings() },
+        error: null,
+      };
+    })
+    .catch((err) => {
+      console.error('[scan] erro:', err);
+      scanJob = { status: 'error', startedAt: scanJob.startedAt, finishedAt: new Date().toISOString(), result: null, error: err.message };
+    });
+  res.status(202).json({ status: 'started' });
+});
+
+app.get('/api/setup/scan/status', (req, res) => {
+  res.json(scanJob);
+});
 
 app.get('/api/setup/suggestions', (req, res) => {
   res.json(suggestMappings());
@@ -108,15 +133,40 @@ app.get('/api/setup/suggestions', (req, res) => {
 // Plano B: quando a busca rápida (scan) não achou um atleta, varre TODAS
 // as páginas (tatames) daquele tournament_day em vez de só pular pro
 // tatame-base esperado. Mais lento, mas cobre atleta que mudou de tatame.
-app.post(
-  '/api/setup/full-scan',
-  asyncHandler(async (req, res) => {
-    const tournamentUrl = req.body && req.body.tournamentUrl;
-    if (!tournamentUrl) return res.status(400).json({ error: 'tournamentUrl é obrigatório' });
-    const result = await fullScanTournament(tournamentUrl);
-    res.json({ ...result, suggestions: suggestMappings() });
-  })
-);
+// Também assíncrono (ver comentário acima do /api/setup/scan).
+const fullScanJobs = new Map(); // tournamentUrl -> job
+
+app.post('/api/setup/full-scan', (req, res) => {
+  const tournamentUrl = req.body && req.body.tournamentUrl;
+  if (!tournamentUrl) return res.status(400).json({ error: 'tournamentUrl é obrigatório' });
+  const existing = fullScanJobs.get(tournamentUrl);
+  if (existing && existing.status === 'running') {
+    return res.status(409).json({ error: 'busca completa já em andamento pra esse torneio' });
+  }
+  const job = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, result: null, error: null };
+  fullScanJobs.set(tournamentUrl, job);
+  fullScanTournament(tournamentUrl)
+    .then((result) => {
+      fullScanJobs.set(tournamentUrl, {
+        status: 'done',
+        startedAt: job.startedAt,
+        finishedAt: new Date().toISOString(),
+        result: { ...result, suggestions: suggestMappings() },
+        error: null,
+      });
+    })
+    .catch((err) => {
+      console.error('[full-scan] erro:', err);
+      fullScanJobs.set(tournamentUrl, { status: 'error', startedAt: job.startedAt, finishedAt: new Date().toISOString(), result: null, error: err.message });
+    });
+  res.status(202).json({ status: 'started' });
+});
+
+app.get('/api/setup/full-scan/status', (req, res) => {
+  const tournamentUrl = req.query.tournamentUrl;
+  if (!tournamentUrl) return res.status(400).json({ error: 'tournamentUrl é obrigatório' });
+  res.json(fullScanJobs.get(tournamentUrl) || { status: 'idle' });
+});
 
 app.get('/api/setup/categories', (req, res) => {
   res.json(getLastScan());

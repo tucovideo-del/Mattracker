@@ -72,6 +72,13 @@ candidato, a tela de Setup mostra um botão **"Busca completa"** por
 torneio — aí sim varre todos os tatames daquele dia (mais lento, mas
 completo) e atualiza as sugestões.
 
+Tanto o scan quanto a busca completa rodam em **background** no servidor:
+o clique só inicia e a tela fica consultando o progresso a cada 2s, em vez
+de segurar uma única requisição HTTP aberta o tempo todo. Isso evita erro
+502 em hosts com timeout de request (Render e outros cortam conexões
+paradas por ~100s, mesmo que o servidor ainda esteja processando
+normalmente por trás).
+
 O parser separa o nome do atleta (caixa alta, ex. "THAINARA APARECIDA...")
 da linha da academia logo abaixo (ex. "David Fadel Brazilian Jiu-Jitsu"),
 pra não confundir uma com a outra na hora de casar com o roster.
